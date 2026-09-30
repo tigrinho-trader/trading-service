@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:trading;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+
+trading:
+  market-data-url: http://market-data.test
+  wallet-url: http://wallet.test
+  # nos testes o resolvedor e chamado na mao
+  resolucao-intervalo-ms: 3600000
