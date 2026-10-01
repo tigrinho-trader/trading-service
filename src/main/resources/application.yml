@@ -4,6 +4,28 @@ server:
 spring:
   application:
     name: trading-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/trading}
+    username: ${DB_USER:tigrinho}
+    password: ${DB_PASSWORD:tigrinho}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+mensageria:
+  exchange: tigrinho.eventos
+
+trading:
+  market-data-url: ${MARKET_DATA_URL:http://localhost:8083}
+  wallet-url: ${WALLET_URL:http://localhost:8082}
+  timeout: 3s
+  resolucao-intervalo-ms: 1000
 
 management:
   endpoints:
