@@ -21,10 +21,19 @@ O jogador e identificado pelo cabecalho `X-Usuario-Id` (o api-gateway vai preenc
 | POST | `/ordens` | Abre uma rodada. Corpo: `{"simbolo":"BTCUSDT","tipo":"ALTA","valor":100,"duracaoSegundos":30}` |
 | GET | `/ordens` | Rodadas do jogador, mais recentes primeiro |
 | GET | `/ordens/{id}` | Uma rodada (404 se for de outro jogador) |
+| GET | `/ordens/regras` | Modos, multiplicadores, duracoes e limites (nao precisa de `X-Usuario-Id`) |
 
 Regras do jogo:
 
-- `tipo`: `ALTA` e `BAIXA` pagam 1,90x; `LATERAL` (preco varia no maximo 0,05%) paga 2,50x. Preco igual em ALTA/BAIXA = empate (devolve a aposta).
+- `modo` (opcional, padrao `DIFICIL`) define o risco da rodada:
+
+  | Modo | ALTA/BAIXA pagam | LATERAL paga | Derrota leva | ALTA/BAIXA so ganham se o preco andar | LATERAL ganha se variar no maximo |
+  |---|---|---|---|---|---|
+  | `FACIL` | 1,50x | 1,80x | metade da aposta | qualquer movimento | 0,10% |
+  | `DIFICIL` | 1,90x | 2,50x | a aposta toda | qualquer movimento | 0,05% |
+  | `INSANO` | 4,00x | 6,00x | a aposta toda | pelo menos 0,02% | 0,01% |
+
+- Preco igual em ALTA/BAIXA nos modos FACIL e DIFICIL = empate (devolve a aposta); no INSANO e derrota.
 - `duracaoSegundos`: 15, 30, 60 ou 300. `valor`: de 1,00 a 10.000,00.
 - A aposta so e aceita se `saldo da carteira - rodadas ainda abertas >= valor` (consulta sincrona ao wallet-service).
 - Um agendador (1s) fecha as rodadas vencidas com o ultimo preco recebido e publica `ordem.executada`.

@@ -1,5 +1,6 @@
 package com.tigrinhotrader.trading.fabrica;
 
+import com.tigrinhotrader.trading.dominio.ModoJogo;
 import com.tigrinhotrader.trading.dominio.Ordem;
 import com.tigrinhotrader.trading.dominio.TipoOrdem;
 import com.tigrinhotrader.trading.estrategia.RegistroEstrategias;
@@ -31,6 +32,11 @@ public class OrdemFactory {
 
     public Ordem criar(String usuarioId, String simbolo, TipoOrdem tipo, BigDecimal valor,
                        int duracaoSegundos, BigDecimal precoEntrada, Instant agora) {
+        return criar(usuarioId, simbolo, tipo, ModoJogo.DIFICIL, valor, duracaoSegundos, precoEntrada, agora);
+    }
+
+    public Ordem criar(String usuarioId, String simbolo, TipoOrdem tipo, ModoJogo modo, BigDecimal valor,
+                       int duracaoSegundos, BigDecimal precoEntrada, Instant agora) {
         if (!DURACOES_PERMITIDAS.contains(duracaoSegundos)) {
             throw new RegraNegocioException("Duracao invalida: use uma de " + DURACOES_PERMITIDAS.stream().sorted().toList());
         }
@@ -45,8 +51,9 @@ public class OrdemFactory {
                 usuarioId,
                 simbolo.toUpperCase(Locale.ROOT),
                 tipo,
+                modo,
                 valor.setScale(2, RoundingMode.HALF_UP),
-                estrategias.para(tipo).multiplicador(),
+                estrategias.para(tipo).multiplicador(modo),
                 precoEntrada,
                 duracaoSegundos,
                 agora);

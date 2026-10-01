@@ -2,6 +2,7 @@ package com.tigrinhotrader.trading.servico;
 
 import com.tigrinhotrader.trading.cliente.MarketDataClient;
 import com.tigrinhotrader.trading.cliente.WalletClient;
+import com.tigrinhotrader.trading.dominio.ModoJogo;
 import com.tigrinhotrader.trading.dominio.Ordem;
 import com.tigrinhotrader.trading.dominio.OrdemRepository;
 import com.tigrinhotrader.trading.dominio.StatusOrdem;
@@ -54,9 +55,16 @@ public class OrdemService {
         this.relogio = relogio;
     }
 
-    /** Abre uma rodada nova com o preco atual como preco de entrada. */
+    /** Abre uma rodada nova no modo classico ({@link ModoJogo#DIFICIL}). */
     @Transactional
     public Ordem criar(String usuarioId, String simbolo, TipoOrdem tipo, BigDecimal valor, int duracaoSegundos) {
+        return criar(usuarioId, simbolo, tipo, ModoJogo.DIFICIL, valor, duracaoSegundos);
+    }
+
+    /** Abre uma rodada nova com o preco atual como preco de entrada. */
+    @Transactional
+    public Ordem criar(String usuarioId, String simbolo, TipoOrdem tipo, ModoJogo modo, BigDecimal valor,
+                       int duracaoSegundos) {
         String ativo = simbolo.toUpperCase(Locale.ROOT);
         BigDecimal precoEntrada = precoCache.preco(ativo)
                 .or(() -> marketDataClient.precoAtual(ativo))
@@ -67,7 +75,7 @@ public class OrdemService {
             throw new RegraNegocioException("Saldo insuficiente: disponivel " + disponivel.max(BigDecimal.ZERO));
         }
 
-        Ordem ordem = fabrica.criar(usuarioId, ativo, tipo, valor, duracaoSegundos, precoEntrada, relogio.instant());
+        Ordem ordem = fabrica.criar(usuarioId, ativo, tipo, modo, valor, duracaoSegundos, precoEntrada, relogio.instant());
         return repositorio.save(ordem);
     }
 
@@ -114,7 +122,8 @@ public class OrdemService {
             log.debug("Sem preco para {} ainda, ordem {} aguarda", ordem.getSimbolo(), id);
             return false;
         }
-        StatusOrdem resultado = estrategias.para(ordem.getTipo()).resolver(ordem.getPrecoEntrada(), precoSaida);
+        StatusOrdem resultado = estrategias.para(ordem.getTipo())
+                .resolver(ordem.getPrecoEntrada(), precoSaida, ordem.getModo());
         ordem.resolver(resultado, precoSaida, agora);
         repositorio.save(ordem);
         publisher.publicar(OrdemExecutadaEvento.de(ordem));

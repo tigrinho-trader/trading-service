@@ -1,5 +1,6 @@
 package com.tigrinhotrader.trading.web;
 
+import com.tigrinhotrader.trading.dominio.ModoJogo;
 import com.tigrinhotrader.trading.dominio.TipoOrdem;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -12,5 +13,11 @@ public record NovaOrdemRequest(
         @NotBlank @Pattern(regexp = "[A-Za-z0-9]{2,20}", message = "simbolo invalido") String simbolo,
         @NotNull TipoOrdem tipo,
         @NotNull @DecimalMin(value = "0.01") @Digits(integer = 12, fraction = 2) BigDecimal valor,
-        @NotNull Integer duracaoSegundos) {
+        @NotNull Integer duracaoSegundos,
+        ModoJogo modo) {
+
+    /** Sem modo informado vale o classico. */
+    public ModoJogo modoOuPadrao() {
+        return modo == null ? ModoJogo.DIFICIL : modo;
+    }
 }

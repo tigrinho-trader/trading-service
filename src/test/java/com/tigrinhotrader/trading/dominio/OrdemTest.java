@@ -42,6 +42,18 @@ class OrdemTest {
     }
 
     @Test
+    void modoFacilSoPerdeMetadeEOrdemAntigaValeComoDificil() {
+        Ordem facil = new Ordem(UUID.randomUUID(), "u1", "BTCUSDT", TipoOrdem.ALTA, ModoJogo.FACIL,
+                new BigDecimal("100.00"), new BigDecimal("1.50"), new BigDecimal("50000"), 15, agora);
+        facil.resolver(StatusOrdem.PERDEU, BigDecimal.ONE, agora);
+        assertThat(facil.getModo()).isEqualTo(ModoJogo.FACIL);
+        assertThat(facil.getValorPago()).isEqualByComparingTo("50.00");
+        assertThat(facil.valorLiquido()).isEqualByComparingTo("-50.00");
+
+        assertThat(ordem().getModo()).isEqualTo(ModoJogo.DIFICIL);
+    }
+
+    @Test
     void naoResolveDuasVezesNemComResultadoAberto() {
         Ordem o = ordem();
         assertThatThrownBy(() -> o.resolver(StatusOrdem.ABERTA, BigDecimal.ONE, agora))

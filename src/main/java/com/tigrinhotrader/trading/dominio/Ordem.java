@@ -43,6 +43,11 @@ public class Ordem {
     @Column(nullable = false, precision = 6, scale = 2)
     private BigDecimal multiplicador;
 
+    /** Nulo em rodadas criadas antes dos modos existirem: valem como DIFICIL. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private ModoJogo modo;
+
     @Column(nullable = false, precision = 24, scale = 8)
     private BigDecimal precoEntrada;
 
@@ -73,7 +78,14 @@ public class Ordem {
 
     public Ordem(UUID id, String usuarioId, String simbolo, TipoOrdem tipo, BigDecimal valor,
                  BigDecimal multiplicador, BigDecimal precoEntrada, int duracaoSegundos, Instant criadaEm) {
+        this(id, usuarioId, simbolo, tipo, ModoJogo.DIFICIL, valor, multiplicador, precoEntrada, duracaoSegundos,
+                criadaEm);
+    }
+
+    public Ordem(UUID id, String usuarioId, String simbolo, TipoOrdem tipo, ModoJogo modo, BigDecimal valor,
+                 BigDecimal multiplicador, BigDecimal precoEntrada, int duracaoSegundos, Instant criadaEm) {
         this.id = id;
+        this.modo = modo;
         this.usuarioId = usuarioId;
         this.simbolo = simbolo;
         this.tipo = tipo;
@@ -100,7 +112,7 @@ public class Ordem {
         this.valorPago = switch (resultado) {
             case GANHOU -> valor.multiply(multiplicador).setScale(2, RoundingMode.HALF_UP);
             case EMPATOU -> valor;
-            default -> BigDecimal.ZERO.setScale(2);
+            default -> valor.subtract(valor.multiply(getModo().fracaoPerda())).setScale(2, RoundingMode.HALF_UP);
         };
     }
 
@@ -127,6 +139,10 @@ public class Ordem {
 
     public TipoOrdem getTipo() {
         return tipo;
+    }
+
+    public ModoJogo getModo() {
+        return modo == null ? ModoJogo.DIFICIL : modo;
     }
 
     public BigDecimal getValor() {

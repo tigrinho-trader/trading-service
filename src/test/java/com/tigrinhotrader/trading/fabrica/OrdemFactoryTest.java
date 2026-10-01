@@ -3,6 +3,7 @@ package com.tigrinhotrader.trading.fabrica;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.tigrinhotrader.trading.dominio.ModoJogo;
 import com.tigrinhotrader.trading.dominio.Ordem;
 import com.tigrinhotrader.trading.dominio.StatusOrdem;
 import com.tigrinhotrader.trading.dominio.TipoOrdem;
@@ -22,6 +23,17 @@ class OrdemFactoryTest {
             new RegistroEstrategias(List.of(new EstrategiaAlta(), new EstrategiaBaixa(), new EstrategiaLateral())));
     private final Instant agora = Instant.parse("2026-09-30T12:00:00Z");
     private final BigDecimal preco = new BigDecimal("65000.12");
+
+    @Test
+    void multiplicadorVemDoModoEscolhido() {
+        Ordem insana = fabrica.criar("u1", "BTCUSDT", TipoOrdem.ALTA, ModoJogo.INSANO, BigDecimal.TEN, 15, preco, agora);
+        assertThat(insana.getModo()).isEqualTo(ModoJogo.INSANO);
+        assertThat(insana.getMultiplicador()).isEqualByComparingTo("4.00");
+
+        Ordem padrao = fabrica.criar("u1", "BTCUSDT", TipoOrdem.ALTA, BigDecimal.TEN, 15, preco, agora);
+        assertThat(padrao.getModo()).isEqualTo(ModoJogo.DIFICIL);
+        assertThat(padrao.getMultiplicador()).isEqualByComparingTo("1.90");
+    }
 
     @Test
     void criaRodadaAbertaComMultiplicadorDaEstrategia() {

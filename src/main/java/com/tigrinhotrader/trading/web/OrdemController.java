@@ -30,13 +30,19 @@ public class OrdemController {
     @ResponseStatus(HttpStatus.CREATED)
     public OrdemResponse criar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId,
                                @Valid @RequestBody NovaOrdemRequest pedido) {
-        return OrdemResponse.de(ordemService.criar(usuarioId, pedido.simbolo(), pedido.tipo(), pedido.valor(),
-                pedido.duracaoSegundos()));
+        return OrdemResponse.de(ordemService.criar(usuarioId, pedido.simbolo(), pedido.tipo(), pedido.modoOuPadrao(),
+                pedido.valor(), pedido.duracaoSegundos()));
     }
 
     @GetMapping
     public List<OrdemResponse> listar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId) {
         return ordemService.listar(usuarioId).stream().map(OrdemResponse::de).toList();
+    }
+
+    /** Modos, multiplicadores e limites do jogo. Nao depende do jogador. */
+    @GetMapping("/regras")
+    public RegrasResponse regras() {
+        return RegrasResponse.atuais();
     }
 
     @GetMapping("/{id}")

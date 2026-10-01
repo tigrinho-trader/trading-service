@@ -147,6 +147,54 @@ class TradingServiceApplicationTests {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void rodadaInsanaPagaQuatroVezesEModoFacilPerdeMetade() throws Exception {
+        when(walletClient.saldo("jogador-insano")).thenReturn(new BigDecimal("1000.00"));
+        chegaPreco("SOLUSDT", "100.00");
+
+        String insana = mockMvc.perform(post("/ordens").header("X-Usuario-Id", "jogador-insano")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"simbolo\":\"SOLUSDT\",\"tipo\":\"ALTA\",\"valor\":10,"
+                                + "\"duracaoSegundos\":15,\"modo\":\"INSANO\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.modo").value("INSANO"))
+                .andExpect(jsonPath("$.multiplicador").value(4.00))
+                .andReturn().getResponse().getContentAsString();
+        String facil = mockMvc.perform(post("/ordens").header("X-Usuario-Id", "jogador-insano")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"simbolo\":\"SOLUSDT\",\"tipo\":\"BAIXA\",\"valor\":10,"
+                                + "\"duracaoSegundos\":15,\"modo\":\"FACIL\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.multiplicador").value(1.50))
+                .andReturn().getResponse().getContentAsString();
+
+        relogio.avancar(Duration.ofSeconds(16));
+        chegaPreco("SOLUSDT", "100.03");
+        resolvedor.executar();
+
+        mockMvc.perform(get("/ordens/" + objectMapper.readTree(insana).get("id").asText())
+                        .header("X-Usuario-Id", "jogador-insano"))
+                .andExpect(jsonPath("$.status").value("GANHOU"))
+                .andExpect(jsonPath("$.valorLiquido").value(30.00));
+        mockMvc.perform(get("/ordens/" + objectMapper.readTree(facil).get("id").asText())
+                        .header("X-Usuario-Id", "jogador-insano"))
+                .andExpect(jsonPath("$.status").value("PERDEU"))
+                .andExpect(jsonPath("$.valorLiquido").value(-5.00));
+    }
+
+    @Test
+    void regrasDoJogo() throws Exception {
+        mockMvc.perform(get("/ordens/regras"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.modos", hasSize(3)))
+                .andExpect(jsonPath("$.modos[0].modo").value("FACIL"))
+                .andExpect(jsonPath("$.modos[0].perdaPercentual").value(50))
+                .andExpect(jsonPath("$.modos[2].multiplicadorLateral").value(6.00))
+                .andExpect(jsonPath("$.modos[2].movimentoMinimoPercentual").value(0.02))
+                .andExpect(jsonPath("$.duracoesSegundos", hasSize(4)))
+                .andExpect(jsonPath("$.valorMaximo").value(10000.00));
+    }
+
     private static void assertEvento(OrdemExecutadaEvento e) {
         org.assertj.core.api.Assertions.assertThat(e.usuarioId()).isEqualTo("jogador-1");
         org.assertj.core.api.Assertions.assertThat(e.valorLiquido()).isEqualByComparingTo("90.00");
