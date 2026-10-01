@@ -183,6 +183,53 @@ class TradingServiceApplicationTests {
     }
 
     @Test
+    void barreiraTocadaPeloPrecoDaFilaPerdeNaHora() throws Exception {
+        when(walletClient.saldo("aviador")).thenReturn(new BigDecimal("1000.00"));
+        chegaPreco("XRPUSDT", "2.0000");
+
+        String corpo = mockMvc.perform(post("/ordens").header("X-Usuario-Id", "aviador")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"simbolo\":\"XRPUSDT\",\"tipo\":\"BARREIRA\",\"alvo\":2.0010,\"valor\":10,"
+                                + "\"duracaoSegundos\":30}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tipo").value("BARREIRA"))
+                .andExpect(jsonPath("$.alvo").value(2.0010))
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(corpo).get("id").asText();
+
+        relogio.avancar(Duration.ofSeconds(5));
+        chegaPreco("XRPUSDT", "2.0005");
+        mockMvc.perform(get("/ordens/" + id).header("X-Usuario-Id", "aviador"))
+                .andExpect(jsonPath("$.status").value("ABERTA"));
+
+        chegaPreco("XRPUSDT", "2.0011");
+        mockMvc.perform(get("/ordens/" + id).header("X-Usuario-Id", "aviador"))
+                .andExpect(jsonPath("$.status").value("PERDEU"))
+                .andExpect(jsonPath("$.precoSaida").value(2.0011))
+                .andExpect(jsonPath("$.valorLiquido").value(-10.00));
+
+        // sem alvo e com alvo colado no preco
+        mockMvc.perform(post("/ordens").header("X-Usuario-Id", "aviador").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"simbolo\":\"XRPUSDT\",\"tipo\":\"BARREIRA\",\"valor\":10,\"duracaoSegundos\":30}"))
+                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(post("/ordens").header("X-Usuario-Id", "aviador").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"simbolo\":\"XRPUSDT\",\"tipo\":\"BARREIRA\",\"alvo\":2.00110001,\"valor\":10,"
+                                + "\"duracaoSegundos\":30}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("colado")));
+    }
+
+    @Test
+    void parametrosDaBarreira() throws Exception {
+        mockMvc.perform(get("/ordens/barreira").param("simbolos", "btcusdt"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.margem").value(0.95))
+                .andExpect(jsonPath("$.multiplicadorMaximo").value(20.00))
+                .andExpect(jsonPath("$.distanciaMinima").value(0.00001))
+                .andExpect(jsonPath("$.volatilidadePorSegundo.BTCUSDT").isNumber());
+    }
+
+    @Test
     void regrasDoJogo() throws Exception {
         mockMvc.perform(get("/ordens/regras"))
                 .andExpect(status().isOk())

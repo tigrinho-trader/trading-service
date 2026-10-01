@@ -7,6 +7,8 @@ import com.tigrinhotrader.trading.dominio.Ordem;
 import com.tigrinhotrader.trading.dominio.OrdemRepository;
 import com.tigrinhotrader.trading.dominio.StatusOrdem;
 import com.tigrinhotrader.trading.dominio.TipoOrdem;
+import com.tigrinhotrader.trading.estrategia.CalculadoraBarreira;
+import com.tigrinhotrader.trading.estrategia.EstrategiaBarreira;
 import com.tigrinhotrader.trading.estrategia.RegistroEstrategias;
 import com.tigrinhotrader.trading.fabrica.OrdemFactory;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaEvento;
@@ -66,17 +68,77 @@ public class OrdemService {
     public Ordem criar(String usuarioId, String simbolo, TipoOrdem tipo, ModoJogo modo, BigDecimal valor,
                        int duracaoSegundos) {
         String ativo = simbolo.toUpperCase(Locale.ROOT);
-        BigDecimal precoEntrada = precoCache.preco(ativo)
+        BigDecimal precoEntrada = precoAtual(ativo);
+        exigirSaldo(usuarioId, valor);
+        Ordem ordem = fabrica.criar(usuarioId, ativo, tipo, modo, valor, duracaoSegundos, precoEntrada, relogio.instant());
+        return repositorio.save(ordem);
+    }
+
+    /** Abre uma rodada "sem toque": ganha se o preco nao encostar no alvo ate o fim. */
+    @Transactional
+    public Ordem criarBarreira(String usuarioId, String simbolo, BigDecimal alvo, BigDecimal valor,
+                               int duracaoSegundos) {
+        String ativo = simbolo.toUpperCase(Locale.ROOT);
+        BigDecimal precoEntrada = precoAtual(ativo);
+        exigirSaldo(usuarioId, valor);
+        Ordem ordem = fabrica.criarBarreira(usuarioId, ativo, alvo, valor, duracaoSegundos, precoEntrada,
+                volatilidade(ativo), relogio.instant());
+        return repositorio.save(ordem);
+    }
+
+    /** Volatilidade medida do ativo, ou o chute padrao enquanto o historico enche. */
+    public double volatilidade(String simbolo) {
+        return precoCache.volatilidadePorSegundo(simbolo).orElse(CalculadoraBarreira.VOLATILIDADE_PADRAO);
+    }
+
+    /**
+     * Chamado a cada preco novo: BARREIRA aberta cujo alvo foi tocado perde na hora.
+     *
+     * @return quantas rodadas perderam com este preco
+     */
+    public int verificarBarreiras(String simbolo, BigDecimal preco) {
+        Instant agora = relogio.instant();
+        int tocadas = 0;
+        for (Ordem aberta : repositorio.findBySimboloAndTipoAndStatus(simbolo.toUpperCase(Locale.ROOT),
+                TipoOrdem.BARREIRA, StatusOrdem.ABERTA)) {
+            if (!EstrategiaBarreira.tocou(aberta.getPrecoEntrada(), aberta.getAlvo(), preco)) {
+                continue;
+            }
+            try {
+                if (Boolean.TRUE.equals(transacao.execute(status -> fecharTocada(aberta.getId(), preco, agora)))) {
+                    tocadas++;
+                }
+            } catch (RuntimeException e) {
+                log.warn("Falha ao fechar barreira {}, tentando no proximo preco: {}", aberta.getId(), e.getMessage());
+            }
+        }
+        return tocadas;
+    }
+
+    private boolean fecharTocada(UUID id, BigDecimal preco, Instant agora) {
+        Ordem ordem = repositorio.findById(id).orElse(null);
+        if (ordem == null || !ordem.isAberta()) {
+            return false;
+        }
+        ordem.resolver(StatusOrdem.PERDEU, preco, agora);
+        repositorio.save(ordem);
+        publisher.publicar(OrdemExecutadaEvento.de(ordem));
+        log.info("Barreira {} tocada em {} ({}): PERDEU", id, preco, ordem.getSimbolo());
+        return true;
+    }
+
+    private BigDecimal precoAtual(String ativo) {
+        return precoCache.preco(ativo)
                 .or(() -> marketDataClient.precoAtual(ativo))
                 .orElseThrow(() -> new ServicoIndisponivelException("Sem cotacao disponivel para " + ativo));
+    }
 
+    /** Saldo da carteira menos o que ja esta apostado em rodadas abertas. */
+    private void exigirSaldo(String usuarioId, BigDecimal valor) {
         BigDecimal disponivel = walletClient.saldo(usuarioId).subtract(repositorio.somarValorEmAberto(usuarioId));
         if (disponivel.compareTo(valor) < 0) {
             throw new RegraNegocioException("Saldo insuficiente: disponivel " + disponivel.max(BigDecimal.ZERO));
         }
-
-        Ordem ordem = fabrica.criar(usuarioId, ativo, tipo, modo, valor, duracaoSegundos, precoEntrada, relogio.instant());
-        return repositorio.save(ordem);
     }
 
     @Transactional(readOnly = true)
@@ -122,8 +184,7 @@ public class OrdemService {
             log.debug("Sem preco para {} ainda, ordem {} aguarda", ordem.getSimbolo(), id);
             return false;
         }
-        StatusOrdem resultado = estrategias.para(ordem.getTipo())
-                .resolver(ordem.getPrecoEntrada(), precoSaida, ordem.getModo());
+        StatusOrdem resultado = estrategias.para(ordem.getTipo()).resolver(ordem, precoSaida);
         ordem.resolver(resultado, precoSaida, agora);
         repositorio.save(ordem);
         publisher.publicar(OrdemExecutadaEvento.de(ordem));

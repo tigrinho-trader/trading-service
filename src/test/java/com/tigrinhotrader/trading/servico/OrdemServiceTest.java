@@ -17,6 +17,8 @@ import com.tigrinhotrader.trading.dominio.StatusOrdem;
 import com.tigrinhotrader.trading.dominio.TipoOrdem;
 import com.tigrinhotrader.trading.estrategia.EstrategiaAlta;
 import com.tigrinhotrader.trading.estrategia.EstrategiaBaixa;
+import com.tigrinhotrader.trading.estrategia.EstrategiaBarreira;
+import com.tigrinhotrader.trading.estrategia.CalculadoraBarreira;
 import com.tigrinhotrader.trading.estrategia.EstrategiaLateral;
 import com.tigrinhotrader.trading.estrategia.RegistroEstrategias;
 import com.tigrinhotrader.trading.fabrica.OrdemFactory;
@@ -43,7 +45,8 @@ class OrdemServiceTest {
 
     private final Instant agora = Instant.parse("2026-09-30T12:00:00Z");
     private final RegistroEstrategias estrategias =
-            new RegistroEstrategias(List.of(new EstrategiaAlta(), new EstrategiaBaixa(), new EstrategiaLateral()));
+            new RegistroEstrategias(List.of(new EstrategiaAlta(), new EstrategiaBaixa(), new EstrategiaLateral(),
+                    new EstrategiaBarreira()));
 
     private OrdemRepository repositorio;
     private PrecoCache precoCache;
@@ -141,6 +144,67 @@ class OrdemServiceTest {
                 estrategias.para(tipo).multiplicador(), new BigDecimal("100"), 30, agora.minusSeconds(31));
         when(repositorio.findById(o.getId())).thenReturn(Optional.of(o));
         return o;
+    }
+
+    private Ordem barreira(String alvo) {
+        return Ordem.barreira(UUID.randomUUID(), "u1", "BTCUSDT", new BigDecimal(alvo), new BigDecimal("10.00"),
+                new BigDecimal("2.00"), new BigDecimal("100"), 30, agora.minusSeconds(31));
+    }
+
+    @Test
+    void criaBarreiraComVolatilidadePadraoEnquantoNaoHaHistorico() {
+        preco("BTCUSDT", "100");
+        when(wallet.saldo("u1")).thenReturn(new BigDecimal("1000"));
+
+        Ordem ordem = service.criarBarreira("u1", "btcusdt", new BigDecimal("100.05"), BigDecimal.TEN, 30);
+
+        assertThat(ordem.getTipo()).isEqualTo(TipoOrdem.BARREIRA);
+        assertThat(ordem.getAlvo()).isEqualByComparingTo("100.05");
+        assertThat(ordem.getMultiplicador()).isGreaterThan(BigDecimal.ONE);
+        assertThat(service.volatilidade("BTCUSDT")).isEqualTo(CalculadoraBarreira.VOLATILIDADE_PADRAO);
+    }
+
+    @Test
+    void barreiraTocadaPerdeNaHoraEAsOutrasSeguem() {
+        Ordem acima = barreira("101");
+        Ordem abaixo = barreira("99");
+        when(repositorio.findBySimboloAndTipoAndStatus("BTCUSDT", TipoOrdem.BARREIRA, StatusOrdem.ABERTA))
+                .thenReturn(List.of(acima, abaixo));
+        when(repositorio.findById(acima.getId())).thenReturn(Optional.of(acima));
+
+        assertThat(service.verificarBarreiras("btcusdt", new BigDecimal("101.2"))).isEqualTo(1);
+
+        assertThat(acima.getStatus()).isEqualTo(StatusOrdem.PERDEU);
+        assertThat(acima.getPrecoSaida()).isEqualByComparingTo("101.2");
+        assertThat(acima.valorLiquido()).isEqualByComparingTo("-10.00");
+        assertThat(abaixo.isAberta()).isTrue();
+        verify(publisher).publicar(any(OrdemExecutadaEvento.class));
+    }
+
+    @Test
+    void barreiraJaFechadaOuComFalhaNaoContaComoTocada() {
+        Ordem jaFechada = barreira("101");
+        Ordem comFalha = barreira("101");
+        when(repositorio.findBySimboloAndTipoAndStatus("BTCUSDT", TipoOrdem.BARREIRA, StatusOrdem.ABERTA))
+                .thenReturn(List.of(jaFechada, comFalha));
+        when(repositorio.findById(jaFechada.getId())).thenReturn(Optional.empty());
+        when(repositorio.findById(comFalha.getId())).thenReturn(Optional.of(comFalha));
+        doThrow(new AmqpConnectException(new RuntimeException("sem broker"))).when(publisher).publicar(any());
+
+        assertThat(service.verificarBarreiras("BTCUSDT", new BigDecimal("102"))).isZero();
+    }
+
+    @Test
+    void barreiraQueSobreviveAteOFimGanha() {
+        Ordem sobreviveu = barreira("101");
+        when(repositorio.findByStatusAndExpiraEmLessThanEqual(StatusOrdem.ABERTA, agora)).thenReturn(List.of(sobreviveu));
+        when(repositorio.findById(sobreviveu.getId())).thenReturn(Optional.of(sobreviveu));
+        preco("BTCUSDT", "100.7");
+
+        assertThat(service.resolverVencidas()).isEqualTo(1);
+
+        assertThat(sobreviveu.getStatus()).isEqualTo(StatusOrdem.GANHOU);
+        assertThat(sobreviveu.valorLiquido()).isEqualByComparingTo("10.00");
     }
 
     @Test

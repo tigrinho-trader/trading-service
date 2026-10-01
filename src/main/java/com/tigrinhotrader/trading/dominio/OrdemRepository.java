@@ -17,6 +17,8 @@ public interface OrdemRepository extends JpaRepository<Ordem, UUID> {
 
     List<Ordem> findByStatusAndExpiraEmLessThanEqual(StatusOrdem status, Instant limite);
 
+    List<Ordem> findBySimboloAndTipoAndStatus(String simbolo, TipoOrdem tipo, StatusOrdem status);
+
     /** Soma do valor apostado em rodadas ainda abertas: e o saldo "comprometido" do jogador. */
     @Query("select coalesce(sum(o.valor), 0) from Ordem o "
             + "where o.usuarioId = :usuarioId and o.status = com.tigrinhotrader.trading.dominio.StatusOrdem.ABERTA")

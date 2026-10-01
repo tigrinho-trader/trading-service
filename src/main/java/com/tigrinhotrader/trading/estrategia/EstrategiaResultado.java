@@ -1,6 +1,7 @@
 package com.tigrinhotrader.trading.estrategia;
 
 import com.tigrinhotrader.trading.dominio.ModoJogo;
+import com.tigrinhotrader.trading.dominio.Ordem;
 import com.tigrinhotrader.trading.dominio.StatusOrdem;
 import com.tigrinhotrader.trading.dominio.TipoOrdem;
 import java.math.BigDecimal;
@@ -17,6 +18,11 @@ public interface EstrategiaResultado {
     BigDecimal multiplicador(ModoJogo modo);
 
     StatusOrdem resolver(BigDecimal precoEntrada, BigDecimal precoSaida, ModoJogo modo);
+
+    /** Resultado olhando a ordem inteira (a BARREIRA precisa do alvo). */
+    default StatusOrdem resolver(Ordem ordem, BigDecimal precoSaida) {
+        return resolver(ordem.getPrecoEntrada(), precoSaida, ordem.getModo());
+    }
 
     /** Multiplicador no modo classico ({@link ModoJogo#DIFICIL}). */
     default BigDecimal multiplicador() {

@@ -54,6 +54,10 @@ public class Ordem {
     @Column(precision = 24, scale = 8)
     private BigDecimal precoSaida;
 
+    /** So na BARREIRA: o preco que nao pode ser tocado. */
+    @Column(precision = 24, scale = 8)
+    private BigDecimal alvo;
+
     @Column(nullable = false)
     private int duracaoSegundos;
 
@@ -86,6 +90,7 @@ public class Ordem {
                  BigDecimal multiplicador, BigDecimal precoEntrada, int duracaoSegundos, Instant criadaEm) {
         this.id = id;
         this.modo = modo;
+        this.alvo = null;
         this.usuarioId = usuarioId;
         this.simbolo = simbolo;
         this.tipo = tipo;
@@ -139,6 +144,20 @@ public class Ordem {
 
     public TipoOrdem getTipo() {
         return tipo;
+    }
+
+    /** Rodada BARREIRA: o alvo nao pode ser tocado ate o fim. */
+    public static Ordem barreira(UUID id, String usuarioId, String simbolo, BigDecimal alvo, BigDecimal valor,
+                                 BigDecimal multiplicador, BigDecimal precoEntrada, int duracaoSegundos,
+                                 Instant criadaEm) {
+        Ordem ordem = new Ordem(id, usuarioId, simbolo, TipoOrdem.BARREIRA, ModoJogo.DIFICIL, valor, multiplicador,
+                precoEntrada, duracaoSegundos, criadaEm);
+        ordem.alvo = alvo;
+        return ordem;
+    }
+
+    public BigDecimal getAlvo() {
+        return alvo;
     }
 
     public ModoJogo getModo() {

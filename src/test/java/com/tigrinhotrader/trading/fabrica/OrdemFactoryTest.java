@@ -25,6 +25,34 @@ class OrdemFactoryTest {
     private final BigDecimal preco = new BigDecimal("65000.12");
 
     @Test
+    void barreiraPrecificaPelaDistanciaEVolatilidade() {
+        BigDecimal entrada = new BigDecimal("100");
+        // alvo a 1 desvio da rodada de 15s: 0,95 / 0,6827 = 1,39x
+        double sigma = 0.0001;
+        BigDecimal alvo = entrada.multiply(BigDecimal.valueOf(Math.exp(sigma * Math.sqrt(15))));
+        Ordem ordem = fabrica.criarBarreira("u1", "btcusdt", alvo, BigDecimal.TEN, 15, entrada, sigma, agora);
+        assertThat(ordem.getTipo()).isEqualTo(TipoOrdem.BARREIRA);
+        assertThat(ordem.getSimbolo()).isEqualTo("BTCUSDT");
+        assertThat(ordem.getAlvo()).isEqualByComparingTo(alvo);
+        assertThat(ordem.getMultiplicador()).isEqualByComparingTo("1.39");
+    }
+
+    @Test
+    void barreiraRecusaAlvoColadoLongeOuAusente() {
+        BigDecimal entrada = new BigDecimal("100");
+        assertThatThrownBy(() -> fabrica.criarBarreira("u1", "BTCUSDT", new BigDecimal("100.0001"), BigDecimal.TEN,
+                15, entrada, 0.0001, agora)).hasMessageContaining("colado");
+        assertThatThrownBy(() -> fabrica.criarBarreira("u1", "BTCUSDT", new BigDecimal("110"), BigDecimal.TEN, 15,
+                entrada, 0.0001, agora)).hasMessageContaining("longe demais");
+        assertThatThrownBy(() -> fabrica.criarBarreira("u1", "BTCUSDT", null, BigDecimal.TEN, 15, entrada, 0.0001,
+                agora)).isInstanceOf(RegraNegocioException.class);
+        assertThatThrownBy(() -> fabrica.criarBarreira("u1", "BTCUSDT", new BigDecimal("101"), BigDecimal.TEN, 7,
+                entrada, 0.0001, agora)).hasMessageContaining("Duracao");
+        assertThatThrownBy(() -> fabrica.criar("u1", "BTCUSDT", TipoOrdem.BARREIRA, BigDecimal.TEN, 15, entrada, agora))
+                .hasMessageContaining("alvo");
+    }
+
+    @Test
     void multiplicadorVemDoModoEscolhido() {
         Ordem insana = fabrica.criar("u1", "BTCUSDT", TipoOrdem.ALTA, ModoJogo.INSANO, BigDecimal.TEN, 15, preco, agora);
         assertThat(insana.getModo()).isEqualTo(ModoJogo.INSANO);

@@ -14,7 +14,8 @@ public record NovaOrdemRequest(
         @NotNull TipoOrdem tipo,
         @NotNull @DecimalMin(value = "0.01") @Digits(integer = 12, fraction = 2) BigDecimal valor,
         @NotNull Integer duracaoSegundos,
-        ModoJogo modo) {
+        ModoJogo modo,
+        @DecimalMin(value = "0", inclusive = false) BigDecimal alvo) {
 
     /** Sem modo informado vale o classico. */
     public ModoJogo modoOuPadrao() {
