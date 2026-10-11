@@ -1,7 +1,6 @@
 package com.tigrinhotrader.trading.servico;
 
 import com.tigrinhotrader.trading.cliente.MarketDataClient;
-import com.tigrinhotrader.trading.cliente.WalletClient;
 import com.tigrinhotrader.trading.dominio.ModoJogo;
 import com.tigrinhotrader.trading.dominio.Ordem;
 import com.tigrinhotrader.trading.dominio.OrdemRepository;
@@ -37,13 +36,13 @@ public class OrdemService {
     private final RegistroEstrategias estrategias;
     private final PrecoCache precoCache;
     private final MarketDataClient marketDataClient;
-    private final WalletClient walletClient;
+    private final SaldoDisponivel saldoDisponivel;
     private final OrdemExecutadaPublisher publisher;
     private final TransactionTemplate transacao;
     private final Clock relogio;
 
     public OrdemService(OrdemRepository repositorio, OrdemFactory fabrica, RegistroEstrategias estrategias,
-                        PrecoCache precoCache, MarketDataClient marketDataClient, WalletClient walletClient,
+                        PrecoCache precoCache, MarketDataClient marketDataClient, SaldoDisponivel saldoDisponivel,
                         OrdemExecutadaPublisher publisher, PlatformTransactionManager transactionManager,
                         Clock relogio) {
         this.repositorio = repositorio;
@@ -51,7 +50,7 @@ public class OrdemService {
         this.estrategias = estrategias;
         this.precoCache = precoCache;
         this.marketDataClient = marketDataClient;
-        this.walletClient = walletClient;
+        this.saldoDisponivel = saldoDisponivel;
         this.publisher = publisher;
         this.transacao = new TransactionTemplate(transactionManager);
         this.relogio = relogio;
@@ -133,12 +132,9 @@ public class OrdemService {
                 .orElseThrow(() -> new ServicoIndisponivelException("Sem cotacao disponivel para " + ativo));
     }
 
-    /** Saldo da carteira menos o que ja esta apostado em rodadas abertas. */
+    /** Saldo da carteira menos o que ja esta apostado em rodadas e sessoes do Flecha Certeira abertas. */
     private void exigirSaldo(String usuarioId, BigDecimal valor) {
-        BigDecimal disponivel = walletClient.saldo(usuarioId).subtract(repositorio.somarValorEmAberto(usuarioId));
-        if (disponivel.compareTo(valor) < 0) {
-            throw new RegraNegocioException("Saldo insuficiente: disponivel " + disponivel.max(BigDecimal.ZERO));
-        }
+        saldoDisponivel.exigir(usuarioId, valor);
     }
 
     @Transactional(readOnly = true)

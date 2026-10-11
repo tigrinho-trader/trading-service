@@ -17,3 +17,8 @@ trading:
   wallet-url: http://wallet.test
   # nos testes o resolvedor e chamado na mao
   resolucao-intervalo-ms: 3600000
+
+flecha:
+  # nos testes o encerramento automatico e chamado na mao
+  agendador:
+    habilitado: false

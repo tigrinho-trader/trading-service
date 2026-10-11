@@ -21,6 +21,15 @@ public class OrdemExecutadaPublisher {
      * o wallet-service e idempotente por ordemId).
      */
     public void publicar(OrdemExecutadaEvento evento) {
+        enviar(evento);
+    }
+
+    /** Sessao do Flecha Certeira encerrada: mesma rota, a carteira trata igual a uma rodada. */
+    public void publicarSessaoFlecha(SessaoFlechaEncerradaEvento evento) {
+        enviar(evento);
+    }
+
+    private void enviar(Object evento) {
         rabbitTemplate.convertAndSend(exchange.getName(), MensageriaConfig.ROTA_ORDEM_EXECUTADA, evento);
     }
 }

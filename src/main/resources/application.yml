@@ -27,6 +27,14 @@ trading:
   timeout: 3s
   resolucao-intervalo-ms: 1000
 
+flecha:
+  # sessao aberta sem atividade por mais que isso e encerrada automaticamente
+  expira-apos: ${FLECHA_EXPIRA_APOS:10m}
+  intervalo-minimo-tiro: 150ms
+  agendador:
+    habilitado: ${FLECHA_AGENDADOR_HABILITADO:true}
+    intervalo-ms: 60000
+
 management:
   endpoints:
     web:

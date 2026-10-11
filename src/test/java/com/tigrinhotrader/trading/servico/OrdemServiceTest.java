@@ -22,6 +22,7 @@ import com.tigrinhotrader.trading.estrategia.CalculadoraBarreira;
 import com.tigrinhotrader.trading.estrategia.EstrategiaLateral;
 import com.tigrinhotrader.trading.estrategia.RegistroEstrategias;
 import com.tigrinhotrader.trading.fabrica.OrdemFactory;
+import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaEvento;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaPublisher;
 import com.tigrinhotrader.trading.mensageria.PrecoAtualizadoEvento;
@@ -53,6 +54,7 @@ class OrdemServiceTest {
     private MarketDataClient marketData;
     private WalletClient wallet;
     private OrdemExecutadaPublisher publisher;
+    private SessaoFlechaRepository sessoesFlecha;
     private OrdemService service;
 
     /** Gerenciador de transacao "de mentira" so pra o TransactionTemplate rodar sem banco. */
@@ -82,10 +84,13 @@ class OrdemServiceTest {
         marketData = mock(MarketDataClient.class);
         wallet = mock(WalletClient.class);
         publisher = mock(OrdemExecutadaPublisher.class);
+        sessoesFlecha = mock(SessaoFlechaRepository.class);
         service = new OrdemService(repositorio, new OrdemFactory(estrategias), estrategias, precoCache, marketData,
-                wallet, publisher, new TransacaoFalsa(), Clock.fixed(agora, ZoneOffset.UTC));
+                new SaldoDisponivel(wallet, repositorio, sessoesFlecha), publisher, new TransacaoFalsa(),
+                Clock.fixed(agora, ZoneOffset.UTC));
         when(repositorio.save(any(Ordem.class))).thenAnswer(inv -> inv.getArgument(0));
         when(repositorio.somarValorEmAberto("u1")).thenReturn(BigDecimal.ZERO);
+        when(sessoesFlecha.somarCustoEmAberto("u1")).thenReturn(BigDecimal.ZERO);
     }
 
     private void preco(String simbolo, String valor) {
@@ -130,6 +135,19 @@ class OrdemServiceTest {
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("40");
         verify(repositorio, never()).save(any());
+    }
+
+    @Test
+    void sessoesAbertasDoFlechaCerteiraTambemComprometemOSaldo() {
+        preco("BTCUSDT", "100");
+        when(wallet.saldo("u1")).thenReturn(new BigDecimal("100"));
+        when(repositorio.somarValorEmAberto("u1")).thenReturn(new BigDecimal("30"));
+        when(sessoesFlecha.somarCustoEmAberto("u1")).thenReturn(new BigDecimal("50"));
+
+        assertThatThrownBy(() -> service.criar("u1", "BTCUSDT", TipoOrdem.ALTA, new BigDecimal("21"), 30))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessage("Saldo insuficiente: disponivel 20");
+        assertThat(service.criar("u1", "BTCUSDT", TipoOrdem.ALTA, new BigDecimal("20"), 30)).isNotNull();
     }
 
     @Test

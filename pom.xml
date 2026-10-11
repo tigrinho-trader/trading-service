@@ -78,7 +78,7 @@
             <goals><goal>report</goal></goals>
           </execution>
           <execution>
-            <!-- Etapa 2: build quebra se a cobertura de linhas ficar abaixo de 80% -->
+            <!-- build quebra com menos de 80% de linhas ou 75% de ramos cobertos -->
             <id>check</id>
             <phase>verify</phase>
             <goals><goal>check</goal></goals>
@@ -91,6 +91,11 @@
                       <counter>LINE</counter>
                       <value>COVEREDRATIO</value>
                       <minimum>0.80</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.75</minimum>
                     </limit>
                   </limits>
                 </rule>
