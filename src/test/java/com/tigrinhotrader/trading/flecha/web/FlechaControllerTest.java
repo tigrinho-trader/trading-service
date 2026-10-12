@@ -159,7 +159,10 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.passaros.gold").value(15))
                 .andExpect(jsonPath("$.passaros.btc").value(3))
                 .andExpect(jsonPath("$.campos[0].pool.btc").doesNotExist())
-                .andExpect(jsonPath("$.flechas", hasSize(4)))
+                .andExpect(jsonPath("$.flechas", hasSize(5)))
+                .andExpect(jsonPath("$.flechas[4].id").value("btc"))
+                .andExpect(jsonPath("$.flechas[4].fatorPreco").value(1))
+                .andExpect(jsonPath("$.flechas[4].fatorMoedas").value(2))
                 .andExpect(jsonPath("$.flechas[1].id").value("iron"))
                 .andExpect(jsonPath("$.flechas[1].nome").value("Ferro"))
                 .andExpect(jsonPath("$.flechas[1].fatorPreco").value(2))
@@ -318,6 +321,20 @@ class FlechaControllerTest {
         when(walletClient.saldo("sem-carteira")).thenThrow(new ServicoIndisponivelException("wallet fora"));
         abrir("sem-carteira", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":1}}")
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void flechaBitcoinSoAcertaOPassaroBitcoinEDobraAsMoedas() throws Exception {
+        // vilarejo: entrada 5 + 3 flechas bitcoin de 1
+        String id = abrirId("fbtc", "{\"campo\":\"vilarejo\",\"flechas\":{\"btc\":3}}");
+        atirar("fbtc", id, "{\"flecha\":\"btc\",\"acertos\":[\"red\"]}")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("A flecha Bitcoin so acerta o passaro bitcoin"));
+        // passaro bitcoin no vilarejo vale 6; a flecha bitcoin dobra: 12
+        atirar("fbtc", id, "{\"flecha\":\"btc\",\"acertos\":[\"btc\"]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ganhosTiro").value(12))
+                .andExpect(jsonPath("$.sessao.flechas.btc").value(2));
     }
 
     @Test

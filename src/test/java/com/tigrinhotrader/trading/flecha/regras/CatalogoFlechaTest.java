@@ -94,6 +94,13 @@ class CatalogoFlechaTest {
         // mesmos exemplos do frontend (regras.js): 3 x mult
         assertThat(Campo.VILAREJO.valorPassaro(Passaro.BTC)).isEqualTo(6);
         assertThat(Campo.RESERVA_REAL.valorPassaro(Passaro.BTC)).isEqualTo(75);
+        // flecha bitcoin: dobro das moedas do passaro bitcoin, e so acerta ele
+        assertThat(Campo.VILAREJO.moedasAcerto(Passaro.BTC, TipoFlecha.BTC, 1)).isEqualTo(12);
+        assertThat(Campo.RESERVA_REAL.moedasAcerto(Passaro.BTC, TipoFlecha.BTC, 1)).isEqualTo(150);
+        assertThat(TipoFlecha.BTC.acerta(Passaro.BTC)).isTrue();
+        assertThat(TipoFlecha.BTC.acerta(Passaro.GOLD)).isFalse();
+        assertThat(TipoFlecha.WOOD.acerta(Passaro.BTC)).isTrue();
+        assertThat(TipoFlecha.DIAMOND.acerta(Passaro.RED)).isTrue();
     }
 
     @Test
@@ -101,8 +108,11 @@ class CatalogoFlechaTest {
         assertThat(Passaro.values()).extracting(Passaro::id)
                 .containsExactly("red", "big", "yellow", "blue", "gold", "btc");
         assertThat(Passaro.values()).extracting(Passaro::moedas).containsExactly(2, 1, 4, 5, 15, 3);
-        assertThat(TipoFlecha.values()).extracting(TipoFlecha::id).containsExactly("wood", "iron", "gold", "diamond");
-        assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(1, 2, 4, 8);
+        assertThat(TipoFlecha.values()).extracting(TipoFlecha::id)
+                .containsExactly("wood", "iron", "gold", "diamond", "btc");
+        assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(1, 2, 4, 8, 1);
+        assertThat(TipoFlecha.BTC.fatorMoedas()).isEqualByComparingTo("2");
+        assertThat(TipoFlecha.BTC.nome()).isEqualTo("Bitcoin");
         assertThat(TipoFlecha.IRON.fatorMoedas()).isEqualByComparingTo("2.5");
         assertThat(TipoFlecha.DIAMOND.nome()).isEqualTo("Diamante");
     }

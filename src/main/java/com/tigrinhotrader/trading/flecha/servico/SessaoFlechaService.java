@@ -137,6 +137,9 @@ public class SessaoFlechaService {
             if (!campo.temNoPool(passaro)) {
                 throw new RegraNegocioException("Passaro " + idPassaro + " nao aparece no " + campo.nome());
             }
+            if (!tipo.acerta(passaro)) {
+                throw new RegraNegocioException("A flecha " + tipo.nome() + " so acerta o passaro bitcoin");
+            }
             atingidos.add(passaro);
         }
         Instant agora = relogio.instant();

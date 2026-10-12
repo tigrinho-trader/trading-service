@@ -20,6 +20,8 @@ public class Aljava {
     private int gold;
     @Column(nullable = false)
     private int diamond;
+    @Column(nullable = false)
+    private int btc;
 
     protected Aljava() {
         // JPA
@@ -41,6 +43,7 @@ public class Aljava {
         c.iron = iron;
         c.gold = gold;
         c.diamond = diamond;
+        c.btc = btc;
         return c;
     }
 
@@ -50,6 +53,7 @@ public class Aljava {
             case IRON -> iron;
             case GOLD -> gold;
             case DIAMOND -> diamond;
+            case BTC -> btc;
         };
     }
 
@@ -60,11 +64,12 @@ public class Aljava {
             case IRON -> iron += quantidade;
             case GOLD -> gold += quantidade;
             case DIAMOND -> diamond += quantidade;
+            case BTC -> btc += quantidade;
         }
     }
 
     public int total() {
-        return wood + iron + gold + diamond;
+        return wood + iron + gold + diamond + btc;
     }
 
     /** Quanto custam estas flechas no campo (sem a entrada). */
@@ -76,7 +81,7 @@ public class Aljava {
         return soma;
     }
 
-    /** {"wood": n, "iron": n, "gold": n, "diamond": n}, na ordem dos tipos. */
+    /** {"wood": n, "iron": n, "gold": n, "diamond": n, "btc": n}, na ordem dos tipos. */
     public Map<String, Integer> comoMapa() {
         Map<String, Integer> mapa = new LinkedHashMap<>();
         for (TipoFlecha tipo : TipoFlecha.values()) {

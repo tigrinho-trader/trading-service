@@ -65,7 +65,8 @@ public class SessaoFlecha {
             @AttributeOverride(name = "wood", column = @Column(name = "compradas_wood", nullable = false)),
             @AttributeOverride(name = "iron", column = @Column(name = "compradas_iron", nullable = false)),
             @AttributeOverride(name = "gold", column = @Column(name = "compradas_gold", nullable = false)),
-            @AttributeOverride(name = "diamond", column = @Column(name = "compradas_diamond", nullable = false))
+            @AttributeOverride(name = "diamond", column = @Column(name = "compradas_diamond", nullable = false)),
+            @AttributeOverride(name = "btc", column = @Column(name = "compradas_btc", columnDefinition = "integer default 0 not null"))
     })
     private Aljava compradas;
 
@@ -74,7 +75,8 @@ public class SessaoFlecha {
             @AttributeOverride(name = "wood", column = @Column(name = "restantes_wood", nullable = false)),
             @AttributeOverride(name = "iron", column = @Column(name = "restantes_iron", nullable = false)),
             @AttributeOverride(name = "gold", column = @Column(name = "restantes_gold", nullable = false)),
-            @AttributeOverride(name = "diamond", column = @Column(name = "restantes_diamond", nullable = false))
+            @AttributeOverride(name = "diamond", column = @Column(name = "restantes_diamond", nullable = false)),
+            @AttributeOverride(name = "btc", column = @Column(name = "restantes_btc", columnDefinition = "integer default 0 not null"))
     })
     private Aljava restantes;
 
@@ -83,7 +85,8 @@ public class SessaoFlecha {
             @AttributeOverride(name = "wood", column = @Column(name = "disparadas_wood", nullable = false)),
             @AttributeOverride(name = "iron", column = @Column(name = "disparadas_iron", nullable = false)),
             @AttributeOverride(name = "gold", column = @Column(name = "disparadas_gold", nullable = false)),
-            @AttributeOverride(name = "diamond", column = @Column(name = "disparadas_diamond", nullable = false))
+            @AttributeOverride(name = "diamond", column = @Column(name = "disparadas_diamond", nullable = false)),
+            @AttributeOverride(name = "btc", column = @Column(name = "disparadas_btc", columnDefinition = "integer default 0 not null"))
     })
     private Aljava disparadas;
 
