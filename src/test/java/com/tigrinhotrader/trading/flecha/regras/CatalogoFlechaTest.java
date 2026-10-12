@@ -84,12 +84,23 @@ class CatalogoFlechaTest {
         assertThat(Campo.VILAREJO.temNoPool(Passaro.BLUE)).isFalse();
         assertThat(Campo.VILAREJO.temNoPool(Passaro.GOLD)).isTrue();
         assertThat(Campo.BOSQUE.temNoPool(Passaro.BLUE)).isTrue();
+        // o bitcoin nasce em todo campo, fora do sorteio
+        for (Campo c : Campo.values()) {
+            assertThat(c.temNoPool(Passaro.BTC)).isTrue();
+            assertThat(c.pool()).doesNotContainKey(Passaro.BTC);
+        }
+        assertThat(Passaro.BTC.emTodoCampo()).isTrue();
+        assertThat(Passaro.GOLD.emTodoCampo()).isFalse();
+        // mesmos exemplos do frontend (regras.js): 3 x mult
+        assertThat(Campo.VILAREJO.valorPassaro(Passaro.BTC)).isEqualTo(6);
+        assertThat(Campo.RESERVA_REAL.valorPassaro(Passaro.BTC)).isEqualTo(75);
     }
 
     @Test
     void tabelasDePassarosEFlechas() {
-        assertThat(Passaro.values()).extracting(Passaro::id).containsExactly("red", "big", "yellow", "blue", "gold");
-        assertThat(Passaro.values()).extracting(Passaro::moedas).containsExactly(2, 1, 4, 5, 15);
+        assertThat(Passaro.values()).extracting(Passaro::id)
+                .containsExactly("red", "big", "yellow", "blue", "gold", "btc");
+        assertThat(Passaro.values()).extracting(Passaro::moedas).containsExactly(2, 1, 4, 5, 15, 3);
         assertThat(TipoFlecha.values()).extracting(TipoFlecha::id).containsExactly("wood", "iron", "gold", "diamond");
         assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(1, 2, 4, 8);
         assertThat(TipoFlecha.IRON.fatorMoedas()).isEqualByComparingTo("2.5");

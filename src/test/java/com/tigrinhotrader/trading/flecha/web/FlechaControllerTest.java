@@ -157,6 +157,8 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.campos[3].pool.gold").value(1.2))
                 .andExpect(jsonPath("$.passaros.red").value(2))
                 .andExpect(jsonPath("$.passaros.gold").value(15))
+                .andExpect(jsonPath("$.passaros.btc").value(3))
+                .andExpect(jsonPath("$.campos[0].pool.btc").doesNotExist())
                 .andExpect(jsonPath("$.flechas", hasSize(4)))
                 .andExpect(jsonPath("$.flechas[1].id").value("iron"))
                 .andExpect(jsonPath("$.flechas[1].nome").value("Ferro"))
@@ -316,6 +318,16 @@ class FlechaControllerTest {
         when(walletClient.saldo("sem-carteira")).thenThrow(new ServicoIndisponivelException("wallet fora"));
         abrir("sem-carteira", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":1}}")
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void passaroBitcoinValeEmQualquerCampo() throws Exception {
+        // vilarejo (mult 2): bitcoin 3 x 2 = 6, depois vermelho 4 no 2o do combo = 8
+        String id = abrirId("btc1", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":2}}");
+        atirar("btc1", id, "{\"flecha\":\"wood\",\"acertos\":[\"btc\",\"red\"]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ganhosTiro").value(14))
+                .andExpect(jsonPath("$.sessao.acertos").value(2));
     }
 
     @Test

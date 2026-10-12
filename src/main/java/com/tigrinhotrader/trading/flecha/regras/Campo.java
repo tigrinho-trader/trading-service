@@ -73,9 +73,9 @@ public enum Campo {
         return base * posicaoCombo;
     }
 
-    /** O passaro aparece neste campo (peso maior que zero no sorteio)? */
+    /** O passaro aparece neste campo (peso maior que zero no sorteio, ou passaro de todo campo)? */
     public boolean temNoPool(Passaro passaro) {
-        return pool.get(passaro).signum() > 0;
+        return passaro.emTodoCampo() || pool.getOrDefault(passaro, BigDecimal.ZERO).signum() > 0;
     }
 
     public String slug() {
