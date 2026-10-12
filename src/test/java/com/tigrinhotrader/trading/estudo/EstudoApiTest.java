@@ -191,9 +191,13 @@ class EstudoApiTest {
     }
 
     private ResultActions registrar(String jogador, UUID sessao, String direcao) throws Exception {
+        return registrar(jogador, sessao, direcao, "BINARIA");
+    }
+
+    private ResultActions registrar(String jogador, UUID sessao, String direcao, String tipo) throws Exception {
         return mockMvc.perform(post("/jogos/flecha/estudo/operacoes").header("X-Usuario-Id", jogador)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("sessaoId", sessao, "direcao", direcao,
+                .content(json.writeValueAsString(Map.of("sessaoId", sessao, "direcao", direcao, "tipo", tipo,
                         "precoAgora", 80000, "precoPrevisto", 80010))));
     }
 
@@ -216,6 +220,7 @@ class EstudoApiTest {
         UUID id = idDe(registrar(jogador, sessao, "alta")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.direcao").value("ALTA"))
+                .andExpect(jsonPath("$.tipo").value("BINARIA"))
                 .andExpect(jsonPath("$.modo").value("SIMULADO"))
                 .andExpect(jsonPath("$.nocionalBrl").value(30))
                 .andExpect(jsonPath("$.precoPrevistoJogo").value(80010)));
@@ -235,6 +240,7 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.resultadoBrutoBrl").value(0.2))     // 0,0001 x 400 x 5
                 .andExpect(jsonPath("$.taxasBrl").value(0.1))
                 .andExpect(jsonPath("$.resultadoLiquidoBrl").value(0.1))   // (8,03 - 8,01) x 5
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(10))    // aposta binaria de R$ 10: acertou
                 .andExpect(jsonPath("$.fechadaEm").exists());
 
         // outra pessoa nao ve a operacao; sem usuario e 401
@@ -245,6 +251,8 @@ class EstudoApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.modoAtual").value("SIMULADO"))
                 .andExpect(jsonPath("$.nocionalBrl").value(30))
+                .andExpect(jsonPath("$.apostaBinariaBrl").value(10))
+                .andExpect(jsonPath("$.simulado.placarBinarioBrl").isNumber())
                 .andExpect(jsonPath("$.simulado.operacoes").isNumber())
                 .andExpect(jsonPath("$.simulado.taxaAcertoPercentual").isNumber())
                 .andExpect(jsonPath("$.real.operacoes").isNumber());
@@ -256,6 +264,8 @@ class EstudoApiTest {
         UUID sessao = sessao(jogador, 1);
 
         registrar(jogador, sessao, "lateral").andExpect(status().isUnprocessableEntity());
+        registrar(jogador, sessao, "ALTA", "roleta").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Tipo deve ser BINARIA ou PREVISAO"));
         registrar(novoJogador(), sessao, "ALTA").andExpect(status().isNotFound());
         registrar(jogador, UUID.randomUUID(), "ALTA").andExpect(status().isNotFound());
         mockMvc.perform(post("/jogos/flecha/estudo/operacoes").header("X-Usuario-Id", jogador)
@@ -263,7 +273,12 @@ class EstudoApiTest {
                 .andExpect(status().isBadRequest());
 
         corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
-        registrar(jogador, sessao, "QUEDA").andExpect(status().isCreated());
+        // cliente antigo, sem o tipo: conta como previsao de preco
+        mockMvc.perform(post("/jogos/flecha/estudo/operacoes").header("X-Usuario-Id", jogador)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("sessaoId", sessao, "direcao", "QUEDA"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tipo").value("PREVISAO"));
         // so comprou 1 flecha bitcoin
         relogio.avancar(Duration.ofSeconds(2));
         registrar(jogador, sessao, "QUEDA").andExpect(status().isUnprocessableEntity())
@@ -333,7 +348,8 @@ class EstudoApiTest {
         consultar(jogador, id).andExpect(jsonPath("$.status").value("ABERTA"));
         agendador.rodarAgendadas();   // 2a fecha
         consultar(jogador, id).andExpect(jsonPath("$.status").value("FECHADA"))
-                .andExpect(jsonPath("$.acertouDirecao").value(false));
+                .andExpect(jsonPath("$.acertouDirecao").value(false))
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10));
         assertThat(corretora.ids).anyMatch(i -> i.endsWith("f1"));
 
         // outra operacao que nunca fecha

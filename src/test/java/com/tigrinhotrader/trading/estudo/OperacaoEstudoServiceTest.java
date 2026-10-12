@@ -37,7 +37,8 @@ class OperacaoEstudoServiceTest {
     private final Agendador agendador = mock(Agendador.class);
 
     private OperacaoEstudoService servico(boolean revisao) {
-        EstudoProperties p = new EstudoProperties(null, null, null, 0, null, null, null, 2, 0, null, null, revisao, null);
+        EstudoProperties p = new EstudoProperties(null, null, null, 0, null, null, null, 2, 0, null, null, revisao, null,
+                null);
         return new OperacaoEstudoService(operacoes, sessoes, corretora, agendador, p, new PrecoCache(),
                 Clock.fixed(AGORA, ZoneOffset.UTC));
     }
@@ -53,10 +54,11 @@ class OperacaoEstudoServiceTest {
                 Instant.parse("2026-10-12T00:00:00Z"))).thenReturn(2L);
         when(operacoes.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        OperacaoEstudo o = servico(false).registrar("u", UUID.randomUUID(), "ALTA", BigDecimal.ONE, BigDecimal.TEN);
+        OperacaoEstudo o = servico(false).registrar("u", UUID.randomUUID(), "ALTA", "binaria", BigDecimal.ONE, null);
 
         assertThat(o.getStatus()).isEqualTo(StatusOperacao.RECUSADA);
         assertThat(o.getMotivo()).isEqualTo("Limite de operacoes do dia atingido");
+        assertThat(o.getTipo()).isEqualTo(TipoPrevisao.BINARIA);
         verifyNoInteractions(agendador);
     }
 
@@ -68,11 +70,11 @@ class OperacaoEstudoServiceTest {
 
     @Test
     void revisaoFechaAsEsquecidasEEncerraAsQueNuncaAbriram() {
-        OperacaoEstudo esquecida = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, ModoEstudo.REAL,
+        OperacaoEstudo esquecida = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, TipoPrevisao.PREVISAO, ModoEstudo.REAL,
                 BigDecimal.TEN, null, null, AGORA.minusSeconds(120));
         esquecida.registrarAbertura(new Execucao("a", BigDecimal.ONE, BigDecimal.TEN, BigDecimal.TEN.negate(),
                 BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO), BigDecimal.ONE, AGORA.minusSeconds(119));
-        OperacaoEstudo travada = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.QUEDA, ModoEstudo.REAL,
+        OperacaoEstudo travada = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.QUEDA, TipoPrevisao.BINARIA, ModoEstudo.REAL,
                 BigDecimal.TEN, null, null, AGORA.minusSeconds(120));
         when(operacoes.findByStatusAndAbertaEmBefore(eq(StatusOperacao.ABERTA), any())).thenReturn(List.of(esquecida));
         when(operacoes.findByStatusAndCriadaEmBefore(eq(StatusOperacao.ABRINDO), any())).thenReturn(List.of(travada));
@@ -98,7 +100,7 @@ class OperacaoEstudoServiceTest {
         s.abrir(id);
         s.fechar(id);
 
-        OperacaoEstudo terminada = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, ModoEstudo.SIMULADO,
+        OperacaoEstudo terminada = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, TipoPrevisao.BINARIA, ModoEstudo.SIMULADO,
                 BigDecimal.TEN, null, null, AGORA);
         terminada.recusar("x".repeat(400), AGORA);
         assertThat(terminada.getMotivo()).hasSize(300);
@@ -113,7 +115,7 @@ class OperacaoEstudoServiceTest {
 
     @Test
     void idDaOrdemCabeNoLimiteDaBinance() {
-        OperacaoEstudo o = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, ModoEstudo.REAL, BigDecimal.TEN,
+        OperacaoEstudo o = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, TipoPrevisao.PREVISAO, ModoEstudo.REAL, BigDecimal.TEN,
                 null, null, AGORA);
         assertThat(OperacaoEstudoService.idCliente(o, "f2")).hasSize(29).matches("[a-z0-9]+");
     }

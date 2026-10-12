@@ -65,10 +65,12 @@ public class OperacaoEstudoService {
      * Registra a previsao de uma flecha bitcoin que acabou de sair do arco e dispara a abertura. Devolve a operacao
      * ja salva (ABRINDO, ou RECUSADA se uma trava do modo REAL impediu).
      */
-    public OperacaoEstudo registrar(String usuarioId, UUID sessaoId, String direcaoTexto, BigDecimal precoAgora,
-                                    BigDecimal precoPrevisto) {
+    public OperacaoEstudo registrar(String usuarioId, UUID sessaoId, String direcaoTexto, String tipoTexto,
+                                    BigDecimal precoAgora, BigDecimal precoPrevisto) {
         Direcao direcao = Direcao.porNome(direcaoTexto)
                 .orElseThrow(() -> new RegraNegocioException("Direcao deve ser ALTA ou QUEDA"));
+        TipoPrevisao tipo = tipoTexto == null ? TipoPrevisao.PREVISAO : TipoPrevisao.porNome(tipoTexto)
+                .orElseThrow(() -> new RegraNegocioException("Tipo deve ser BINARIA ou PREVISAO"));
         SessaoFlecha sessao = sessoes.findByIdAndUsuarioId(sessaoId, usuarioId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Sessao nao encontrada"));
         if (!sessao.isAberta()) {
@@ -84,7 +86,7 @@ public class OperacaoEstudoService {
             throw new RitmoExcedidoException("Uma operacao por vez: espere "
                     + propriedades.intervaloPorJogador().toMillis() + " ms entre flechas bitcoin");
         }
-        OperacaoEstudo operacao = OperacaoEstudo.nova(usuarioId, sessaoId, direcao, corretora.modo(),
+        OperacaoEstudo operacao = OperacaoEstudo.nova(usuarioId, sessaoId, direcao, tipo, corretora.modo(),
                 propriedades.nocionalBrl(), precoAgora, precoPrevisto, agora);
         Optional<String> trava = corretora.modo() == ModoEstudo.REAL ? travaDoModoReal(agora) : Optional.empty();
         if (trava.isPresent()) {
@@ -103,7 +105,7 @@ public class OperacaoEstudoService {
     }
 
     public ResumoEstudo resumo() {
-        return new ResumoEstudo(corretora.modo(), propriedades.nocionalBrl(),
+        return new ResumoEstudo(corretora.modo(), propriedades.nocionalBrl(), propriedades.apostaBinariaBrl(),
                 operacoes.resumir(ModoEstudo.SIMULADO), operacoes.resumir(ModoEstudo.REAL));
     }
 
@@ -159,7 +161,7 @@ public class OperacaoEstudoService {
             Execucao saida = corretora.fechar(operacao.getDirecao(), entrada,
                     idCliente(operacao, "f" + operacao.getTentativasFechar()));
             ResultadoOperacao resultado = ResultadoOperacao.calcular(operacao.getDirecao(), entrada, saida,
-                    operacao.getCambio());
+                    operacao.getCambio(), propriedades.apostaBinariaBrl());
             operacao.fechar(saida, resultado, relogio.instant());
             operacoes.save(operacao);
         } catch (RuntimeException e) {

@@ -50,6 +50,8 @@ estudo:
   max-abertas: ${ESTUDO_MAX_ABERTAS:5}
   perda-maxima-dia-brl: ${ESTUDO_PERDA_MAXIMA_DIA_BRL:50}
   intervalo-por-jogador: 1s
+  # placar da aposta binaria (+ no acerto, - no erro): so metrica do estudo, nao move dinheiro
+  aposta-binaria-brl: 10
   revisao-habilitada: true
   revisao-ms: 30000
   binance:

@@ -18,12 +18,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param perdaMaximaDiaBrl para de operar no dia quando o resultado liquido chega a menos isso
  * @param intervaloPorJogador intervalo minimo entre duas operacoes do mesmo jogador
  * @param revisaoHabilitada liga a revisao periodica de operacoes que ficaram pelo caminho
+ * @param apostaBinariaBrl valor da aposta binaria contada no placar (+ no acerto, - no erro); nao e dinheiro real
  */
 @ConfigurationProperties(prefix = "estudo")
 public record EstudoProperties(ModoEstudo modo, String simbolo, BigDecimal margemBrl, int alavancagem,
                                Duration fechaApos, BigDecimal taxaSimulada, BigDecimal cambioReserva,
                                int maxOperacoesDia, int maxAbertas, BigDecimal perdaMaximaDiaBrl,
-                               Duration intervaloPorJogador, boolean revisaoHabilitada, Binance binance) {
+                               Duration intervaloPorJogador, boolean revisaoHabilitada, Binance binance,
+                               BigDecimal apostaBinariaBrl) {
 
     /**
      * Acesso a Binance (so no modo REAL). A chave vem SO do ambiente (BINANCE_API_KEY/BINANCE_API_SECRET) e nunca
@@ -62,6 +64,7 @@ public record EstudoProperties(ModoEstudo modo, String simbolo, BigDecimal marge
         perdaMaximaDiaBrl = perdaMaximaDiaBrl == null ? new BigDecimal("50") : perdaMaximaDiaBrl;
         intervaloPorJogador = intervaloPorJogador == null ? Duration.ofSeconds(1) : intervaloPorJogador;
         binance = binance == null ? new Binance(null, null, null, 0, null) : binance;
+        apostaBinariaBrl = apostaBinariaBrl == null ? new BigDecimal("10") : apostaBinariaBrl;
     }
 
     /** Tamanho da posicao em reais (margem x alavancagem). */

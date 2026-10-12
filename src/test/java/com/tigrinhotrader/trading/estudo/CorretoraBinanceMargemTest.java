@@ -52,7 +52,7 @@ class CorretoraBinanceMargemTest {
         servidor = MockRestServiceServer.bindTo(builder).ignoreExpectOrder(true).build();
         precos = new PrecoCache();
         EstudoProperties propriedades = new EstudoProperties(ModoEstudo.REAL, "BTCUSDT", null, 0, null, null, null,
-                0, 0, null, null, false, new EstudoProperties.Binance(URL, "chave-teste", SEGREDO, 5000, null));
+                0, 0, null, null, false, new EstudoProperties.Binance(URL, "chave-teste", SEGREDO, 5000, null), null);
         corretora = new CorretoraBinanceMargem(builder.build(), propriedades, precos,
                 Clock.fixed(Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC));
     }

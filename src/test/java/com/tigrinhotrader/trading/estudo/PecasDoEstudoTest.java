@@ -18,7 +18,7 @@ import org.springframework.web.client.RestClient;
 class PecasDoEstudoTest {
 
     private static EstudoProperties padrao() {
-        return new EstudoProperties(null, null, null, 0, null, null, null, 0, 0, null, null, false, null);
+        return new EstudoProperties(null, null, null, 0, null, null, null, 0, 0, null, null, false, null, null);
     }
 
     private static PrecoCache comPreco(String simbolo, String preco) {
@@ -41,6 +41,7 @@ class PecasDoEstudoTest {
         assertThat(p.binance().url()).isEqualTo("https://api.binance.com");
         assertThat(p.binance().temCredenciais()).isFalse();
         assertThat(p.binance().recvWindow()).isEqualTo(5000);
+        assertThat(p.apostaBinariaBrl()).isEqualByComparingTo("10");
 
         EstudoProperties.Binance comChave = new EstudoProperties.Binance(" ", " k ", "s3gr3d0", 0, null);
         assertThat(comChave.temCredenciais()).isTrue();
@@ -71,7 +72,7 @@ class PecasDoEstudoTest {
 
         precos.atualizar(new PrecoAtualizadoEvento("BTCUSDT", new BigDecimal("80400"), null, Instant.now().plusSeconds(5)));
         Execucao saida = sim.fechar(Direcao.ALTA, entrada, "op-f");
-        ResultadoOperacao r = ResultadoOperacao.calcular(Direcao.ALTA, entrada, saida, new BigDecimal("5"));
+        ResultadoOperacao r = ResultadoOperacao.calcular(Direcao.ALTA, entrada, saida, new BigDecimal("5"), BigDecimal.TEN);
 
         assertThat(r.brutoUsdt()).isEqualByComparingTo("0.04");           // 0,0001 x 400
         assertThat(r.taxasUsdt()).isEqualByComparingTo("0.01604");        // 0,008 + 0,00804
@@ -80,6 +81,7 @@ class PecasDoEstudoTest {
         assertThat(r.brutoBrl()).isEqualByComparingTo("0.2");
         assertThat(r.taxasBrl()).isEqualByComparingTo("0.0802");
         assertThat(r.acertou()).isTrue();
+        assertThat(r.binarioBrl()).isEqualByComparingTo("10");          // aposta binaria: acertou, +R$ 10
     }
 
     @Test
@@ -92,15 +94,17 @@ class PecasDoEstudoTest {
 
         precos.atualizar(new PrecoAtualizadoEvento("BTCUSDT", new BigDecimal("79600"), null, Instant.now().plusSeconds(5)));
         ResultadoOperacao caiu = ResultadoOperacao.calcular(Direcao.QUEDA, entrada,
-                sim.fechar(Direcao.QUEDA, entrada, "q-f"), BigDecimal.ONE);
+                sim.fechar(Direcao.QUEDA, entrada, "q-f"), BigDecimal.ONE, BigDecimal.TEN);
         assertThat(caiu.brutoUsdt()).isEqualByComparingTo("0.04");
+        assertThat(caiu.binarioBrl()).isEqualByComparingTo("10");
         assertThat(caiu.liquidoUsdt()).isEqualByComparingTo("0.024040");   // 0,04 - 0,008 - 0,00796
         assertThat(caiu.acertou()).isTrue();
 
         precos.atualizar(new PrecoAtualizadoEvento("BTCUSDT", new BigDecimal("80000"), null, Instant.now().plusSeconds(9)));
         ResultadoOperacao parado = ResultadoOperacao.calcular(Direcao.QUEDA, entrada,
-                sim.fechar(Direcao.QUEDA, entrada, "q-f"), BigDecimal.ONE);
+                sim.fechar(Direcao.QUEDA, entrada, "q-f"), BigDecimal.ONE, BigDecimal.TEN);
         assertThat(parado.acertou()).isFalse();                         // nao mexeu: nao conta como acerto
+        assertThat(parado.binarioBrl()).isZero();                       // e a aposta binaria empata
         assertThat(parado.liquidoUsdt()).isNegative();                  // so pagou as taxas
     }
 
@@ -111,7 +115,9 @@ class PecasDoEstudoTest {
                 new BigDecimal("0.000999"), new BigDecimal("0.1"), BigDecimal.ZERO);
         Execucao saida = new Execucao("f", new BigDecimal("0.001"), new BigDecimal("101000"), new BigDecimal("101"),
                 new BigDecimal("-0.001"), new BigDecimal("0.05"), new BigDecimal("0.05"));
-        ResultadoOperacao r = ResultadoOperacao.calcular(Direcao.ALTA, entrada, saida, BigDecimal.ONE);
+        ResultadoOperacao r = ResultadoOperacao.calcular(Direcao.QUEDA, entrada, saida, BigDecimal.ONE, BigDecimal.TEN);
+        assertThat(r.binarioBrl()).isEqualByComparingTo("-10");         // previu queda e subiu
+        r = ResultadoOperacao.calcular(Direcao.ALTA, entrada, saida, BigDecimal.ONE, BigDecimal.TEN);
         assertThat(r.brutoUsdt()).isEqualByComparingTo("1");
         // 1 - 0,000001 x 101.000 - 0,05 (BNB)
         assertThat(r.liquidoUsdt()).isEqualByComparingTo("0.849");
@@ -126,12 +132,10 @@ class PecasDoEstudoTest {
 
     @Test
     void taxaDeAcertoDoResumo() {
-        assertThat(new NumerosEstudo(0L, 0L, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO).taxaAcertoPercentual())
-                .isNull();
-        assertThat(new NumerosEstudo(null, 0L, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO).taxaAcertoPercentual())
-                .isNull();
-        assertThat(new NumerosEstudo(3L, 2L, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO).taxaAcertoPercentual())
-                .isEqualByComparingTo("66.7");
+        BigDecimal z = BigDecimal.ZERO;
+        assertThat(new NumerosEstudo(0L, 0L, z, z, z, z).taxaAcertoPercentual()).isNull();
+        assertThat(new NumerosEstudo(null, 0L, z, z, z, z).taxaAcertoPercentual()).isNull();
+        assertThat(new NumerosEstudo(3L, 2L, z, z, z, z).taxaAcertoPercentual()).isEqualByComparingTo("66.7");
     }
 
     @Test
@@ -143,12 +147,12 @@ class PecasDoEstudoTest {
                 .isInstanceOf(CorretoraSimulada.class);
 
         EstudoProperties realSemChave = new EstudoProperties(ModoEstudo.REAL, null, null, 0, null, null, null, 0, 0,
-                null, null, false, null);
+                null, null, false, null, null);
         assertThat(config.corretoraEstudo(realSemChave, precos, relogio, RestClient.builder()))
                 .isInstanceOf(CorretoraSimulada.class);
 
         EstudoProperties realComChave = new EstudoProperties(ModoEstudo.REAL, null, null, 0, null, null, null, 0, 0,
-                null, null, false, new EstudoProperties.Binance(null, "k", "s", 0, null));
+                null, null, false, new EstudoProperties.Binance(null, "k", "s", 0, null), null);
         assertThat(config.corretoraEstudo(realComChave, precos, relogio, RestClient.builder()))
                 .isInstanceOf(CorretoraBinanceMargem.class);
     }

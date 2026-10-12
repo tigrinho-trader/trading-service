@@ -35,7 +35,7 @@ public interface OperacaoEstudoRepository extends JpaRepository<OperacaoEstudo, 
     @Query("select new com.tigrinhotrader.trading.estudo.NumerosEstudo(count(o), "
             + "coalesce(sum(case when o.acertouDirecao = true then 1L else 0L end), 0L), "
             + "coalesce(sum(o.resultadoBrutoBrl), 0), coalesce(sum(o.taxasBrl), 0), "
-            + "coalesce(sum(o.resultadoLiquidoBrl), 0)) "
+            + "coalesce(sum(o.resultadoLiquidoBrl), 0), coalesce(sum(o.resultadoBinarioBrl), 0)) "
             + "from OperacaoEstudo o where o.modo = :modo "
             + "and o.status = com.tigrinhotrader.trading.estudo.StatusOperacao.FECHADA")
     NumerosEstudo resumir(@Param("modo") ModoEstudo modo);

@@ -8,9 +8,10 @@ import java.math.RoundingMode;
  *
  * @param operacoes operacoes fechadas
  * @param acertos operacoes em que o preco andou na direcao prevista
+ * @param placarBinarioBrl soma do placar de aposta binaria (+aposta no acerto, -aposta no erro)
  */
 public record NumerosEstudo(Long operacoes, Long acertos, BigDecimal resultadoBrutoBrl, BigDecimal taxasBrl,
-                            BigDecimal resultadoLiquidoBrl) {
+                            BigDecimal resultadoLiquidoBrl, BigDecimal placarBinarioBrl) {
 
     /** Porcentagem de acertos de direcao (0 a 100), ou null sem operacoes. */
     public BigDecimal taxaAcertoPercentual() {

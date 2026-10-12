@@ -50,6 +50,11 @@ public class OperacaoEstudo {
     @Column(length = MOTIVO_MAXIMO)
     private String motivo;
 
+    /** Nula em operacoes de antes da preferencia: eram todas de previsao de preco. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private TipoPrevisao tipo;
+
     /** O que o jogador viu ao mirar: preco de agora e o preco que ele previu para daqui a 5 s. */
     @Column(precision = 18, scale = 8)
     private BigDecimal precoAgoraJogo;
@@ -89,6 +94,9 @@ public class OperacaoEstudo {
     @Column(precision = 14, scale = 4)
     private BigDecimal resultadoLiquidoBrl;
     private Boolean acertouDirecao;
+    /** Placar da aposta binaria (+aposta no acerto, -aposta no erro): metrica do estudo, nao dinheiro real. */
+    @Column(precision = 14, scale = 4)
+    private BigDecimal resultadoBinarioBrl;
 
     @Column(nullable = false)
     private int tentativasFechar;
@@ -102,14 +110,15 @@ public class OperacaoEstudo {
         // JPA
     }
 
-    public static OperacaoEstudo nova(String usuarioId, UUID sessaoId, Direcao direcao, ModoEstudo modo,
-                                      BigDecimal nocionalBrl, BigDecimal precoAgora, BigDecimal precoPrevisto,
-                                      Instant agora) {
+    public static OperacaoEstudo nova(String usuarioId, UUID sessaoId, Direcao direcao, TipoPrevisao tipo,
+                                      ModoEstudo modo, BigDecimal nocionalBrl, BigDecimal precoAgora,
+                                      BigDecimal precoPrevisto, Instant agora) {
         OperacaoEstudo o = new OperacaoEstudo();
         o.id = UUID.randomUUID();
         o.usuarioId = usuarioId;
         o.sessaoId = sessaoId;
         o.direcao = direcao;
+        o.tipo = tipo;
         o.modo = modo;
         o.status = StatusOperacao.ABRINDO;
         o.nocionalBrl = nocionalBrl;
@@ -145,6 +154,7 @@ public class OperacaoEstudo {
         taxasBrl = resultado.taxasBrl();
         resultadoLiquidoBrl = resultado.liquidoBrl();
         acertouDirecao = resultado.acertou();
+        resultadoBinarioBrl = resultado.binarioBrl();
         fechadaEm = agora;
     }
 
@@ -181,6 +191,14 @@ public class OperacaoEstudo {
 
     public Direcao getDirecao() {
         return direcao;
+    }
+
+    public TipoPrevisao getTipo() {
+        return tipo == null ? TipoPrevisao.PREVISAO : tipo;
+    }
+
+    public BigDecimal getResultadoBinarioBrl() {
+        return resultadoBinarioBrl;
     }
 
     public ModoEstudo getModo() {
