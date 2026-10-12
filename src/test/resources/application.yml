@@ -22,3 +22,8 @@ flecha:
   # nos testes o encerramento automatico e chamado na mao
   agendador:
     habilitado: false
+
+estudo:
+  # nos testes a revisao das operacoes e chamada na mao
+  revisao-habilitada: false
+  revisao-ms: 3600000

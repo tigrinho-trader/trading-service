@@ -35,6 +35,31 @@ flecha:
     habilitado: ${FLECHA_AGENDADOR_HABILITADO:true}
     intervalo-ms: 60000
 
+# Estudo da sabedoria das massas: cada flecha bitcoin vira uma operacao na direcao prevista pelo jogador.
+# SIMULADO (padrao): registra e calcula com o preco real, sem ordens. REAL: ordens na margem isolada da Binance,
+# com o dinheiro do dono do jogo. So o dono liga o REAL (ESTUDO_MODO=REAL + chave no ambiente).
+estudo:
+  modo: ${ESTUDO_MODO:SIMULADO}
+  simbolo: BTCUSDT
+  margem-brl: ${ESTUDO_MARGEM_BRL:10}
+  alavancagem: ${ESTUDO_ALAVANCAGEM:3}
+  fecha-apos: 5s
+  taxa-simulada: 0.001
+  cambio-reserva: ${ESTUDO_CAMBIO_RESERVA:5.50}
+  max-operacoes-dia: ${ESTUDO_MAX_OPERACOES_DIA:300}
+  max-abertas: ${ESTUDO_MAX_ABERTAS:5}
+  perda-maxima-dia-brl: ${ESTUDO_PERDA_MAXIMA_DIA_BRL:50}
+  intervalo-por-jogador: 1s
+  revisao-habilitada: true
+  revisao-ms: 30000
+  binance:
+    url: ${BINANCE_URL:https://api.binance.com}
+    # a chave vem SO do ambiente; nunca no repositorio
+    api-key: ${BINANCE_API_KEY:}
+    api-secret: ${BINANCE_API_SECRET:}
+    recv-window: 5000
+    timeout: 5s
+
 management:
   endpoints:
     web:
