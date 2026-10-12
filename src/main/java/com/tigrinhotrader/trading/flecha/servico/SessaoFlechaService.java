@@ -138,7 +138,8 @@ public class SessaoFlechaService {
                 throw new RegraNegocioException("Passaro " + idPassaro + " nao aparece no " + campo.nome());
             }
             if (!tipo.acerta(passaro)) {
-                throw new RegraNegocioException("A flecha " + tipo.nome() + " so acerta o passaro bitcoin");
+                throw new RegraNegocioException("A flecha " + tipo.nome() + " so acerta o passaro "
+                        + tipo.passaroAlvo().map(Passaro::id).orElseThrow());
             }
             atingidos.add(passaro);
         }

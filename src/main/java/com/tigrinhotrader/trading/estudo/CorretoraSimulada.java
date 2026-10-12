@@ -16,9 +16,14 @@ public class CorretoraSimulada implements Corretora {
     private final BigDecimal taxa;
 
     public CorretoraSimulada(EstudoProperties propriedades, PrecoCache precos) {
+        this(propriedades.simbolo(), propriedades.taxaSimulada(), precos);
+    }
+
+    /** Simulacao de outro ativo (ex.: ETHUSDT), com a mesma taxa por ponta. */
+    public CorretoraSimulada(String simbolo, BigDecimal taxa, PrecoCache precos) {
         this.precos = precos;
-        this.simbolo = propriedades.simbolo();
-        this.taxa = propriedades.taxaSimulada();
+        this.simbolo = simbolo;
+        this.taxa = taxa;
     }
 
     @Override

@@ -2,7 +2,6 @@ package com.tigrinhotrader.trading.estudo;
 
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
-import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import com.tigrinhotrader.trading.preco.PrecoCache;
 import com.tigrinhotrader.trading.servico.RecursoNaoEncontradoException;
 import com.tigrinhotrader.trading.servico.RegraNegocioException;
@@ -14,20 +13,25 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
- * Estudo da sabedoria das massas: cada flecha bitcoin solta vira uma operacao na direcao que o jogador previu,
- * aberta na hora e fechada {@code fechaApos} depois (o tempo de voo da flecha). O jogador nao paga nada: no modo
- * REAL o dinheiro e do dono do jogo.
+ * Estudo da sabedoria das massas: cada flecha de mercado solta (bitcoin, ethereum ou ouro) vira uma operacao no
+ * ativo dela, na direcao que o jogador previu, aberta na hora e fechada {@code fechaApos} depois (o tempo de voo da
+ * flecha). O jogador nao paga nada: no modo REAL o dinheiro e do dono do jogo.
+ *
+ * <p>So o ativo configurado ({@code estudo.simbolo}, BTCUSDT) usa a corretora configurada, que pode ser REAL; os
+ * outros ativos sao sempre simulados com o preco real.
  *
  * <p>Travas do modo REAL: operacoes por dia, operacoes abertas ao mesmo tempo e perda maxima do dia. Em qualquer
- * modo: uma operacao por flecha bitcoin comprada na sessao e um intervalo minimo entre operacoes do jogador.
+ * modo: uma operacao por flecha do ativo comprada na sessao e um intervalo minimo entre operacoes do jogador.
  */
 @Service
 public class OperacaoEstudoService {
@@ -43,7 +47,10 @@ public class OperacaoEstudoService {
 
     private final OperacaoEstudoRepository operacoes;
     private final SessaoFlechaRepository sessoes;
+    /** Corretora configurada (pode ser REAL): so para o ativo de {@code estudo.simbolo}. */
     private final Corretora corretora;
+    /** Simulacoes dos outros ativos, criadas no primeiro uso. */
+    private final Map<String, Corretora> simuladas = new ConcurrentHashMap<>();
     private final Agendador agendador;
     private final EstudoProperties propriedades;
     private final PrecoCache precos;
@@ -62,33 +69,38 @@ public class OperacaoEstudoService {
     }
 
     /**
-     * Registra a previsao de uma flecha bitcoin que acabou de sair do arco e dispara a abertura. Devolve a operacao
-     * ja salva (ABRINDO, ou RECUSADA se uma trava do modo REAL impediu).
+     * Registra a previsao de uma flecha de mercado que acabou de sair do arco e dispara a abertura. Devolve a
+     * operacao ja salva (ABRINDO, ou RECUSADA se uma trava do modo REAL impediu).
+     *
+     * @param simboloTexto par do ativo (BTCUSDT, ETHUSDT, PAXGUSDT); sem ele, BTCUSDT (clientes antigos)
      */
-    public OperacaoEstudo registrar(String usuarioId, UUID sessaoId, String direcaoTexto, String tipoTexto,
-                                    BigDecimal precoAgora, BigDecimal precoPrevisto) {
+    public OperacaoEstudo registrar(String usuarioId, UUID sessaoId, String simboloTexto, String direcaoTexto,
+                                    String tipoTexto, BigDecimal precoAgora, BigDecimal precoPrevisto) {
         Direcao direcao = Direcao.porNome(direcaoTexto)
                 .orElseThrow(() -> new RegraNegocioException("Direcao deve ser ALTA ou QUEDA"));
         TipoPrevisao tipo = tipoTexto == null ? TipoPrevisao.PREVISAO : TipoPrevisao.porNome(tipoTexto)
                 .orElseThrow(() -> new RegraNegocioException("Tipo deve ser BINARIA ou PREVISAO"));
+        AtivoEstudo ativo = simboloTexto == null ? AtivoEstudo.BTC : AtivoEstudo.porSimbolo(simboloTexto)
+                .orElseThrow(() -> new RegraNegocioException("Ativo nao suportado: " + simboloTexto));
         SessaoFlecha sessao = sessoes.findByIdAndUsuarioId(sessaoId, usuarioId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Sessao nao encontrada"));
         if (!sessao.isAberta()) {
             throw new RegraNegocioException("Sessao ja encerrada");
         }
-        if (operacoes.countBySessaoId(sessaoId) >= sessao.getCompradas().get(TipoFlecha.BTC)) {
-            throw new RegraNegocioException("Cada flecha bitcoin comprada vale uma operacao");
+        if (operacoes.contarDaSessaoNoAtivo(sessaoId, ativo.simbolo()) >= sessao.getCompradas().get(ativo.flecha())) {
+            throw new RegraNegocioException("Cada flecha " + ativo.flecha().nome() + " comprada vale uma operacao");
         }
         Instant agora = relogio.instant();
         Instant limite = agora.minus(propriedades.intervaloPorJogador());
         Optional<OperacaoEstudo> ultima = operacoes.findFirstByUsuarioIdOrderByCriadaEmDesc(usuarioId);
         if (ultima.isPresent() && ultima.get().getCriadaEm().isAfter(limite)) {
             throw new RitmoExcedidoException("Uma operacao por vez: espere "
-                    + propriedades.intervaloPorJogador().toMillis() + " ms entre flechas bitcoin");
+                    + propriedades.intervaloPorJogador().toMillis() + " ms entre flechas de mercado");
         }
-        OperacaoEstudo operacao = OperacaoEstudo.nova(usuarioId, sessaoId, direcao, tipo, corretora.modo(),
+        ModoEstudo modo = corretoraDe(ativo.simbolo()).modo();
+        OperacaoEstudo operacao = OperacaoEstudo.nova(usuarioId, sessaoId, ativo.simbolo(), direcao, tipo, modo,
                 propriedades.nocionalBrl(), precoAgora, precoPrevisto, agora);
-        Optional<String> trava = corretora.modo() == ModoEstudo.REAL ? travaDoModoReal(agora) : Optional.empty();
+        Optional<String> trava = modo == ModoEstudo.REAL ? travaDoModoReal(agora) : Optional.empty();
         if (trava.isPresent()) {
             operacao.recusar(trava.get(), agora);
             return operacoes.save(operacao);
@@ -106,7 +118,20 @@ public class OperacaoEstudoService {
 
     public ResumoEstudo resumo() {
         return new ResumoEstudo(corretora.modo(), propriedades.nocionalBrl(), propriedades.apostaBinariaBrl(),
-                operacoes.resumir(ModoEstudo.SIMULADO), operacoes.resumir(ModoEstudo.REAL));
+                operacoes.resumir(ModoEstudo.SIMULADO), operacoes.resumir(ModoEstudo.REAL),
+                operacoes.resumirPorAtivo());
+    }
+
+    /**
+     * Onde operar o ativo: a corretora configurada (talvez REAL) so para {@code estudo.simbolo}; qualquer outro
+     * ativo e sempre simulado, para dinheiro real nunca sair por um ativo que o dono nao ligou.
+     */
+    Corretora corretoraDe(String simbolo) {
+        if (simbolo.equalsIgnoreCase(propriedades.simbolo())) {
+            return corretora;
+        }
+        return simuladas.computeIfAbsent(simbolo,
+                s -> new CorretoraSimulada(s, propriedades.taxaSimulada(), precos));
     }
 
     private Optional<String> travaDoModoReal(Instant agora) {
@@ -135,7 +160,8 @@ public class OperacaoEstudoService {
         try {
             BigDecimal cambio = cambio();
             BigDecimal nocionalUsdt = operacao.getNocionalBrl().divide(cambio, 8, RoundingMode.HALF_UP);
-            Execucao entrada = corretora.abrir(operacao.getDirecao(), nocionalUsdt, idCliente(operacao, "a"));
+            Execucao entrada = corretoraDe(operacao.getSimbolo()).abrir(operacao.getDirecao(), nocionalUsdt,
+                    idCliente(operacao, "a"));
             Instant aberta = relogio.instant();
             operacao.registrarAbertura(entrada, cambio, aberta);
             operacoes.save(operacao);
@@ -158,7 +184,7 @@ public class OperacaoEstudoService {
         }
         Execucao entrada = operacao.abertura();
         try {
-            Execucao saida = corretora.fechar(operacao.getDirecao(), entrada,
+            Execucao saida = corretoraDe(operacao.getSimbolo()).fechar(operacao.getDirecao(), entrada,
                     idCliente(operacao, "f" + operacao.getTentativasFechar()));
             ResultadoOperacao resultado = ResultadoOperacao.calcular(operacao.getDirecao(), entrada, saida,
                     operacao.getCambio(), propriedades.apostaBinariaBrl());

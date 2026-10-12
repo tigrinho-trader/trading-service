@@ -5,10 +5,12 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Estudo da "sabedoria das massas" ({@code estudo.*}): cada flecha bitcoin vira uma operacao na direcao prevista
- * pelo jogador, fechada {@code fechaApos} depois. Em {@link ModoEstudo#SIMULADO} (padrao) nada e enviado a
- * corretora; {@link ModoEstudo#REAL} usa dinheiro de verdade e so e ligado pelo dono da conta.
+ * Estudo da "sabedoria das massas" ({@code estudo.*}): cada flecha de mercado (bitcoin, ethereum, ouro) vira uma
+ * operacao na direcao prevista pelo jogador, fechada {@code fechaApos} depois. Em {@link ModoEstudo#SIMULADO}
+ * (padrao) nada e enviado a corretora; {@link ModoEstudo#REAL} usa dinheiro de verdade, so vale para o
+ * {@code simbolo} configurado e so e ligado pelo dono da conta.
  *
+ * @param simbolo unico ativo que pode operar no modo REAL; os outros ativos sao sempre simulados
  * @param margemBrl margem por operacao, em reais
  * @param alavancagem posicao = margem x alavancagem
  * @param taxaSimulada taxa por ponta usada na simulacao (0.001 = 0,1%)

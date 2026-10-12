@@ -11,7 +11,11 @@ public enum Passaro {
     BLUE("blue", 5, false),
     GOLD("gold", 15, false),
     /** Passaro bitcoin: voa conforme a cotacao do BTC e aparece em todo campo, fora do sorteio. */
-    BTC("btc", 3, true);
+    BTC("btc", 3, true),
+    /** Passaro ethereum: voa conforme a cotacao do ETH, em todo campo e fora do sorteio, como o bitcoin. */
+    ETH("eth", 3, true),
+    /** Passaro do ouro: voa conforme a cotacao do ouro (PAXG), em todo campo e fora do sorteio. */
+    OURO("ouro", 3, true);
 
     private final String id;
     private final int moedas;

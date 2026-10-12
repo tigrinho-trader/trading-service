@@ -54,12 +54,35 @@ class OperacaoEstudoServiceTest {
                 Instant.parse("2026-10-12T00:00:00Z"))).thenReturn(2L);
         when(operacoes.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        OperacaoEstudo o = servico(false).registrar("u", UUID.randomUUID(), "ALTA", "binaria", BigDecimal.ONE, null);
+        OperacaoEstudo o = servico(false).registrar("u", UUID.randomUUID(), null, "ALTA", "binaria", BigDecimal.ONE,
+                null);
 
         assertThat(o.getStatus()).isEqualTo(StatusOperacao.RECUSADA);
         assertThat(o.getMotivo()).isEqualTo("Limite de operacoes do dia atingido");
         assertThat(o.getTipo()).isEqualTo(TipoPrevisao.BINARIA);
+        assertThat(o.getSimbolo()).isEqualTo("BTCUSDT");
         verifyNoInteractions(agendador);
+    }
+
+    @Test
+    void soOAtivoConfiguradoUsaACorretoraConfigurada() {
+        when(corretora.modo()).thenReturn(ModoEstudo.REAL);
+        OperacaoEstudoService s = servico(false);
+
+        assertThat(s.corretoraDe("BTCUSDT")).isSameAs(corretora);
+        assertThat(s.corretoraDe("btcusdt")).isSameAs(corretora);
+        Corretora eth = s.corretoraDe("ETHUSDT");
+        assertThat(eth).isInstanceOf(CorretoraSimulada.class).isSameAs(s.corretoraDe("ETHUSDT"));
+        assertThat(eth.modo()).isEqualTo(ModoEstudo.SIMULADO);
+        assertThat(s.corretoraDe("PAXGUSDT")).isInstanceOf(CorretoraSimulada.class).isNotSameAs(eth);
+    }
+
+    @Test
+    void operacaoAntigaSemSimboloEraDeBitcoin() {
+        OperacaoEstudo antiga = OperacaoEstudo.nova("u", UUID.randomUUID(), null, Direcao.ALTA, null,
+                ModoEstudo.SIMULADO, BigDecimal.TEN, null, null, AGORA);
+        assertThat(antiga.getSimbolo()).isEqualTo("BTCUSDT");
+        assertThat(antiga.getTipo()).isEqualTo(TipoPrevisao.PREVISAO);
     }
 
     @Test
@@ -70,11 +93,11 @@ class OperacaoEstudoServiceTest {
 
     @Test
     void revisaoFechaAsEsquecidasEEncerraAsQueNuncaAbriram() {
-        OperacaoEstudo esquecida = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, TipoPrevisao.PREVISAO, ModoEstudo.REAL,
+        OperacaoEstudo esquecida = OperacaoEstudo.nova("u", UUID.randomUUID(), "BTCUSDT", Direcao.ALTA, TipoPrevisao.PREVISAO, ModoEstudo.REAL,
                 BigDecimal.TEN, null, null, AGORA.minusSeconds(120));
         esquecida.registrarAbertura(new Execucao("a", BigDecimal.ONE, BigDecimal.TEN, BigDecimal.TEN.negate(),
                 BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO), BigDecimal.ONE, AGORA.minusSeconds(119));
-        OperacaoEstudo travada = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.QUEDA, TipoPrevisao.BINARIA, ModoEstudo.REAL,
+        OperacaoEstudo travada = OperacaoEstudo.nova("u", UUID.randomUUID(), "BTCUSDT", Direcao.QUEDA, TipoPrevisao.BINARIA, ModoEstudo.REAL,
                 BigDecimal.TEN, null, null, AGORA.minusSeconds(120));
         when(operacoes.findByStatusAndAbertaEmBefore(eq(StatusOperacao.ABERTA), any())).thenReturn(List.of(esquecida));
         when(operacoes.findByStatusAndCriadaEmBefore(eq(StatusOperacao.ABRINDO), any())).thenReturn(List.of(travada));
@@ -100,7 +123,7 @@ class OperacaoEstudoServiceTest {
         s.abrir(id);
         s.fechar(id);
 
-        OperacaoEstudo terminada = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, TipoPrevisao.BINARIA, ModoEstudo.SIMULADO,
+        OperacaoEstudo terminada = OperacaoEstudo.nova("u", UUID.randomUUID(), "BTCUSDT", Direcao.ALTA, TipoPrevisao.BINARIA, ModoEstudo.SIMULADO,
                 BigDecimal.TEN, null, null, AGORA);
         terminada.recusar("x".repeat(400), AGORA);
         assertThat(terminada.getMotivo()).hasSize(300);
@@ -115,7 +138,7 @@ class OperacaoEstudoServiceTest {
 
     @Test
     void idDaOrdemCabeNoLimiteDaBinance() {
-        OperacaoEstudo o = OperacaoEstudo.nova("u", UUID.randomUUID(), Direcao.ALTA, TipoPrevisao.PREVISAO, ModoEstudo.REAL, BigDecimal.TEN,
+        OperacaoEstudo o = OperacaoEstudo.nova("u", UUID.randomUUID(), "BTCUSDT", Direcao.ALTA, TipoPrevisao.PREVISAO, ModoEstudo.REAL, BigDecimal.TEN,
                 null, null, AGORA);
         assertThat(OperacaoEstudoService.idCliente(o, "f2")).hasSize(29).matches("[a-z0-9]+");
     }

@@ -24,10 +24,12 @@ public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> 
         }
     }
 
-    public record FlechaInfo(String id, String nome, int fatorPreco, BigDecimal fatorMoedas) {
+    /** {@code passaroAlvo}: id do unico passaro que a flecha acerta (flechas de mercado), ou nulo se acerta todos. */
+    public record FlechaInfo(String id, String nome, int fatorPreco, BigDecimal fatorMoedas, String passaroAlvo) {
 
         static FlechaInfo de(TipoFlecha t) {
-            return new FlechaInfo(t.id(), t.nome(), t.fatorPreco(), t.fatorMoedas());
+            return new FlechaInfo(t.id(), t.nome(), t.fatorPreco(), t.fatorMoedas(),
+                    t.passaroAlvo().map(Passaro::id).orElse(null));
         }
     }
 

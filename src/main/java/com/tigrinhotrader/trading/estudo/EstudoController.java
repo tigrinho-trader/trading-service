@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,18 +19,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Estudo da sabedoria das massas: a operacao feita com cada flecha bitcoin e o resumo do estudo. */
+/** Estudo da sabedoria das massas: a operacao feita com cada flecha de mercado e o resumo do estudo. */
 @RestController
 @RequestMapping("/jogos/flecha/estudo")
 public class EstudoController {
 
-    /** Previsao do jogador no instante do disparo. {@code tipo}: BINARIA ou PREVISAO (sem ele, PREVISAO). */
+    /**
+     * Previsao do jogador no instante do disparo. {@code tipo}: BINARIA ou PREVISAO (sem ele, PREVISAO).
+     * {@code simbolo}: BTCUSDT, ETHUSDT ou PAXGUSDT (sem ele, BTCUSDT).
+     */
     public record NovaOperacao(@NotNull UUID sessaoId, @NotBlank String direcao, String tipo,
-                               @Positive BigDecimal precoAgora, @Positive BigDecimal precoPrevisto) {
+                               @Positive BigDecimal precoAgora, @Positive BigDecimal precoPrevisto, String simbolo) {
     }
 
-    /** O que o jogador ve: a direcao, o modo e, quando fechar, quanto a operacao ganhou ou perdeu. */
-    public record OperacaoResponse(UUID id, Direcao direcao, TipoPrevisao tipo, ModoEstudo modo,
+    /** O que o jogador ve: o ativo, a direcao, o modo e, quando fechar, quanto a operacao ganhou ou perdeu. */
+    public record OperacaoResponse(UUID id, String simbolo, Direcao direcao, TipoPrevisao tipo, ModoEstudo modo,
                                    StatusOperacao status, String motivo, BigDecimal nocionalBrl,
                                    BigDecimal precoAgoraJogo, BigDecimal precoPrevistoJogo, BigDecimal precoEntrada,
                                    BigDecimal precoSaida, BigDecimal resultadoBrutoBrl, BigDecimal taxasBrl,
@@ -37,7 +41,7 @@ public class EstudoController {
                                    BigDecimal resultadoBinarioBrl, Instant criadaEm, Instant fechadaEm) {
 
         static OperacaoResponse de(OperacaoEstudo o) {
-            return new OperacaoResponse(o.getId(), o.getDirecao(), o.getTipo(), o.getModo(), o.getStatus(),
+            return new OperacaoResponse(o.getId(), o.getSimbolo(), o.getDirecao(), o.getTipo(), o.getModo(), o.getStatus(),
                     o.getMotivo(), o.getNocionalBrl(), o.getPrecoAgoraJogo(), o.getPrecoPrevistoJogo(),
                     o.getPrecoEntrada(), o.getPrecoSaida(), o.getResultadoBrutoBrl(), o.getTaxasBrl(),
                     o.getResultadoLiquidoBrl(), o.getAcertouDirecao(), o.getResultadoBinarioBrl(), o.getCriadaEm(),
@@ -45,9 +49,9 @@ public class EstudoController {
         }
     }
 
-    /** Resumo com a taxa de acerto ja calculada. */
+    /** Resumo com a taxa de acerto ja calculada, no total de cada modo e por ativo. */
     public record ResumoResponse(ModoEstudo modoAtual, BigDecimal nocionalBrl, BigDecimal apostaBinariaBrl,
-                                 Numeros simulado, Numeros real) {
+                                 Numeros simulado, Numeros real, List<PorAtivo> porAtivo) {
 
         public record Numeros(long operacoes, long acertos, BigDecimal taxaAcertoPercentual,
                               BigDecimal resultadoBrutoBrl, BigDecimal taxasBrl, BigDecimal resultadoLiquidoBrl,
@@ -59,9 +63,14 @@ public class EstudoController {
             }
         }
 
+        /** Numeros de um ativo num modo (ex.: ETHUSDT SIMULADO). */
+        public record PorAtivo(String simbolo, ModoEstudo modo, Numeros numeros) {
+        }
+
         static ResumoResponse de(ResumoEstudo r) {
             return new ResumoResponse(r.modoAtual(), r.nocionalBrl(), r.apostaBinariaBrl(), Numeros.de(r.simulado()),
-                    Numeros.de(r.real()));
+                    Numeros.de(r.real()), r.porAtivo().stream()
+                    .map(a -> new PorAtivo(a.simbolo(), a.modo(), Numeros.de(a.numeros()))).toList());
         }
     }
 
@@ -75,8 +84,8 @@ public class EstudoController {
     @ResponseStatus(HttpStatus.CREATED)
     public OperacaoResponse registrar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId,
                                       @Valid @RequestBody NovaOperacao pedido) {
-        return OperacaoResponse.de(service.registrar(usuarioId, pedido.sessaoId(), pedido.direcao(), pedido.tipo(),
-                pedido.precoAgora(), pedido.precoPrevisto()));
+        return OperacaoResponse.de(service.registrar(usuarioId, pedido.sessaoId(), pedido.simbolo(),
+                pedido.direcao(), pedido.tipo(), pedido.precoAgora(), pedido.precoPrevisto()));
     }
 
     @GetMapping("/operacoes/{id}")

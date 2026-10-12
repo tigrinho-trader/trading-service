@@ -158,11 +158,23 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.passaros.red").value(2))
                 .andExpect(jsonPath("$.passaros.gold").value(15))
                 .andExpect(jsonPath("$.passaros.btc").value(3))
+                .andExpect(jsonPath("$.passaros.eth").value(3))
+                .andExpect(jsonPath("$.passaros.ouro").value(3))
                 .andExpect(jsonPath("$.campos[0].pool.btc").doesNotExist())
-                .andExpect(jsonPath("$.flechas", hasSize(5)))
+                .andExpect(jsonPath("$.campos[0].pool.eth").doesNotExist())
+                .andExpect(jsonPath("$.flechas", hasSize(7)))
                 .andExpect(jsonPath("$.flechas[4].id").value("btc"))
                 .andExpect(jsonPath("$.flechas[4].fatorPreco").value(1))
                 .andExpect(jsonPath("$.flechas[4].fatorMoedas").value(2))
+                .andExpect(jsonPath("$.flechas[4].passaroAlvo").value("btc"))
+                .andExpect(jsonPath("$.flechas[5].id").value("eth"))
+                .andExpect(jsonPath("$.flechas[5].nome").value("Ethereum"))
+                .andExpect(jsonPath("$.flechas[5].passaroAlvo").value("eth"))
+                .andExpect(jsonPath("$.flechas[6].id").value("ouro"))
+                .andExpect(jsonPath("$.flechas[6].nome").value("Ouro PAXG"))
+                .andExpect(jsonPath("$.flechas[6].fatorMoedas").value(2))
+                .andExpect(jsonPath("$.flechas[6].passaroAlvo").value("ouro"))
+                .andExpect(jsonPath("$.flechas[0].passaroAlvo").isEmpty())
                 .andExpect(jsonPath("$.flechas[1].id").value("iron"))
                 .andExpect(jsonPath("$.flechas[1].nome").value("Ferro"))
                 .andExpect(jsonPath("$.flechas[1].fatorPreco").value(2))
@@ -329,12 +341,38 @@ class FlechaControllerTest {
         String id = abrirId("fbtc", "{\"campo\":\"vilarejo\",\"flechas\":{\"btc\":3}}");
         atirar("fbtc", id, "{\"flecha\":\"btc\",\"acertos\":[\"red\"]}")
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("A flecha Bitcoin so acerta o passaro bitcoin"));
+                .andExpect(jsonPath("$.detail").value("A flecha Bitcoin so acerta o passaro btc"));
         // passaro bitcoin no vilarejo vale 6; a flecha bitcoin dobra: 12
         atirar("fbtc", id, "{\"flecha\":\"btc\",\"acertos\":[\"btc\"]}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ganhosTiro").value(12))
                 .andExpect(jsonPath("$.sessao.flechas.btc").value(2));
+    }
+
+    @Test
+    void flechasDeEthereumEOuroSoAcertamOProprioPassaro() throws Exception {
+        // vilarejo: entrada 5 + 2 flechas ethereum + 2 de ouro PAXG, de 1 cada
+        String id = abrirId("feth", "{\"campo\":\"vilarejo\",\"flechas\":{\"eth\":2,\"ouro\":2}}");
+        atirar("feth", id, "{\"flecha\":\"eth\",\"acertos\":[\"btc\"]}")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("A flecha Ethereum so acerta o passaro eth"));
+        atirar("feth", id, "{\"flecha\":\"ouro\",\"acertos\":[\"eth\"]}")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("A flecha Ouro PAXG so acerta o passaro ouro"));
+        atirar("feth", id, "{\"flecha\":\"ouro\",\"acertos\":[\"gold\"]}")
+                .andExpect(status().isUnprocessableEntity());
+        // passaro ethereum no vilarejo vale 3 x 2 = 6; a flecha ethereum dobra: 12
+        atirar("feth", id, "{\"flecha\":\"eth\",\"acertos\":[\"eth\"]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ganhosTiro").value(12))
+                .andExpect(jsonPath("$.sessao.flechas.eth").value(1))
+                .andExpect(jsonPath("$.sessao.flechas.ouro").value(2));
+        relogio.avancar(Duration.ofSeconds(1));
+        // o passaro do ouro tambem vale 6 no vilarejo; a flecha de ouro PAXG dobra: 12
+        atirar("feth", id, "{\"flecha\":\"ouro\",\"acertos\":[\"ouro\"]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ganhosTiro").value(12))
+                .andExpect(jsonPath("$.sessao.flechas.ouro").value(1));
     }
 
     @Test

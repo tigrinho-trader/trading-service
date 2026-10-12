@@ -3,6 +3,7 @@ package com.tigrinhotrader.trading.estudo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import com.tigrinhotrader.trading.mensageria.PrecoAtualizadoEvento;
 import com.tigrinhotrader.trading.preco.PrecoCache;
 import com.tigrinhotrader.trading.servico.ServicoIndisponivelException;
@@ -48,6 +49,31 @@ class PecasDoEstudoTest {
         assertThat(comChave.apiKey()).isEqualTo("k");
         assertThat(comChave.toString()).doesNotContain("s3gr3d0").doesNotContain("k,").contains("configuradas");
         assertThat(new EstudoProperties.Binance(null, "k", "", 0, null).temCredenciais()).isFalse();
+    }
+
+    @Test
+    void ativosDoEstudoEAFlechaDeCadaUm() {
+        assertThat(AtivoEstudo.porSimbolo(" ethusdt ")).contains(AtivoEstudo.ETH);
+        assertThat(AtivoEstudo.porSimbolo("PAXGUSDT")).contains(AtivoEstudo.OURO);
+        assertThat(AtivoEstudo.porSimbolo("BTCUSDT")).contains(AtivoEstudo.BTC);
+        assertThat(AtivoEstudo.porSimbolo("DOGEUSDT")).isEmpty();
+        assertThat(AtivoEstudo.porSimbolo(null)).isEmpty();
+        assertThat(AtivoEstudo.values()).extracting(AtivoEstudo::simbolo)
+                .containsExactly("BTCUSDT", "ETHUSDT", "PAXGUSDT");
+        assertThat(AtivoEstudo.values()).extracting(AtivoEstudo::flecha)
+                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO);
+    }
+
+    @Test
+    void simulacaoDeOutroAtivoUsaOPrecoDele() {
+        PrecoCache precos = comPreco("ETHUSDT", "2500");
+        CorretoraSimulada sim = new CorretoraSimulada("ETHUSDT", new BigDecimal("0.001"), precos);
+        Execucao entrada = sim.abrir(Direcao.ALTA, new BigDecimal("5"), "x");
+        assertThat(entrada.precoMedio()).isEqualByComparingTo("2500");
+        assertThat(entrada.quantidadeBtc()).isEqualByComparingTo("0.002");
+        assertThatThrownBy(() -> new CorretoraSimulada("PAXGUSDT", BigDecimal.ZERO, precos)
+                .abrir(Direcao.ALTA, BigDecimal.TEN, "y"))
+                .isInstanceOf(ServicoIndisponivelException.class).hasMessageContaining("PAXGUSDT");
     }
 
     @Test

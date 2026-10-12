@@ -219,6 +219,7 @@ class EstudoApiTest {
 
         UUID id = idDe(registrar(jogador, sessao, "alta")
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.simbolo").value("BTCUSDT"))
                 .andExpect(jsonPath("$.direcao").value("ALTA"))
                 .andExpect(jsonPath("$.tipo").value("BINARIA"))
                 .andExpect(jsonPath("$.modo").value("SIMULADO"))
@@ -255,7 +256,97 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.simulado.placarBinarioBrl").isNumber())
                 .andExpect(jsonPath("$.simulado.operacoes").isNumber())
                 .andExpect(jsonPath("$.simulado.taxaAcertoPercentual").isNumber())
-                .andExpect(jsonPath("$.real.operacoes").isNumber());
+                .andExpect(jsonPath("$.real.operacoes").isNumber())
+                .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'BTCUSDT' && @.modo == 'SIMULADO')].numeros.operacoes")
+                        .isNotEmpty());
+    }
+
+    private UUID sessaoDeMercado(String jogador) {
+        return sessoes.criar(jogador, "vilarejo", Map.of("wood", 1, "btc", 1, "eth", 1, "ouro", 1)).getId();
+    }
+
+    private ResultActions registrarNoAtivo(String jogador, UUID sessao, String simbolo, String direcao)
+            throws Exception {
+        return mockMvc.perform(post("/jogos/flecha/estudo/operacoes").header("X-Usuario-Id", jogador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("sessaoId", sessao, "direcao", direcao, "tipo", "BINARIA",
+                        "simbolo", simbolo))));
+    }
+
+    @Test
+    void ethereumEOuroSaoSempreSimuladosMesmoComOBitcoinNoModoReal() throws Exception {
+        corretora.modo = ModoEstudo.REAL;
+        precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
+        precos.atualizar(new PrecoAtualizadoEvento("PAXGUSDT", new BigDecimal("3300"), null, relogio.instant()));
+        String jogador = novoJogador();
+        UUID sessao = sessaoDeMercado(jogador);
+
+        UUID eth = idDe(registrarNoAtivo(jogador, sessao, " ethusdt ", "ALTA")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.simbolo").value("ETHUSDT"))
+                .andExpect(jsonPath("$.modo").value("SIMULADO")));
+        consultar(jogador, eth).andExpect(jsonPath("$.status").value("ABERTA"))
+                .andExpect(jsonPath("$.precoEntrada").value(2500));
+        relogio.avancar(Duration.ofSeconds(2));
+        UUID ouro = idDe(registrarNoAtivo(jogador, sessao, "PAXGUSDT", "QUEDA")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.simbolo").value("PAXGUSDT"))
+                .andExpect(jsonPath("$.modo").value("SIMULADO")));
+
+        // 5 s depois: ETH subiu (acertou), ouro subiu (errou)
+        relogio.avancar(Duration.ofSeconds(5));
+        precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2510"), null, relogio.instant()));
+        precos.atualizar(new PrecoAtualizadoEvento("PAXGUSDT", new BigDecimal("3310"), null, relogio.instant()));
+        agendador.rodarAgendadas();
+
+        consultar(jogador, eth).andExpect(jsonPath("$.status").value("FECHADA"))
+                .andExpect(jsonPath("$.precoSaida").value(2510))
+                .andExpect(jsonPath("$.acertouDirecao").value(true))
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(10));
+        consultar(jogador, ouro).andExpect(jsonPath("$.status").value("FECHADA"))
+                .andExpect(jsonPath("$.acertouDirecao").value(false))
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10));
+        // a corretora configurada (REAL) nem foi chamada
+        assertThat(corretora.ids).isEmpty();
+        assertThat(operacoes.findById(eth)).get().extracting(OperacaoEstudo::getModo).isEqualTo(ModoEstudo.SIMULADO);
+
+        mockMvc.perform(get("/jogos/flecha/estudo/resumo"))
+                .andExpect(jsonPath("$.modoAtual").value("REAL"))
+                .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'ETHUSDT' && @.modo == 'SIMULADO')].numeros.operacoes")
+                        .isNotEmpty())
+                .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'PAXGUSDT' && @.modo == 'SIMULADO')].numeros.acertos")
+                        .isNotEmpty())
+                .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'ETHUSDT' && @.modo == 'REAL')]").doesNotExist())
+                .andExpect(jsonPath("$.porAtivo[0].numeros.taxaAcertoPercentual").isNumber())
+                .andExpect(jsonPath("$.porAtivo[0].numeros.placarBinarioBrl").isNumber());
+    }
+
+    @Test
+    void cadaFlechaDeMercadoValeUmaOperacaoNoProprioAtivo() throws Exception {
+        precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
+        String jogador = novoJogador();
+        UUID sessao = sessaoDeMercado(jogador);
+
+        registrarNoAtivo(jogador, sessao, "DOGEUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Ativo nao suportado: DOGEUSDT"));
+
+        registrarNoAtivo(jogador, sessao, "ETHUSDT", "ALTA").andExpect(status().isCreated());
+        relogio.avancar(Duration.ofSeconds(2));
+        registrarNoAtivo(jogador, sessao, "ETHUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Cada flecha Ethereum comprada vale uma operacao"));
+        // a operacao de ETH nao gasta a vaga do bitcoin (sem simbolo = BTCUSDT)
+        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        registrar(jogador, sessao, "QUEDA").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.simbolo").value("BTCUSDT"));
+        relogio.avancar(Duration.ofSeconds(2));
+        registrar(jogador, sessao, "QUEDA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Cada flecha Bitcoin comprada vale uma operacao"));
+
+        // sessao sem flecha de ouro PAXG
+        String outro = novoJogador();
+        UUID semOuro = sessao(outro, 1);
+        registrarNoAtivo(outro, semOuro, "PAXGUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Cada flecha Ouro PAXG comprada vale uma operacao"));
     }
 
     @Test
@@ -282,7 +373,7 @@ class EstudoApiTest {
         // so comprou 1 flecha bitcoin
         relogio.avancar(Duration.ofSeconds(2));
         registrar(jogador, sessao, "QUEDA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Cada flecha bitcoin comprada vale uma operacao"));
+                .andExpect(jsonPath("$.detail").value("Cada flecha Bitcoin comprada vale uma operacao"));
 
         // sem flecha bitcoin na sessao
         String outro = novoJogador();

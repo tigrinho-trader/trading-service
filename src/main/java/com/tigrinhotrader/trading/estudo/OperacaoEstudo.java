@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Uma previsao de um jogador (uma flecha bitcoin) e a operacao feita com ela. */
+/** Uma previsao de um jogador (uma flecha de mercado: bitcoin, ethereum ou ouro) e a operacao feita com ela. */
 @Entity
 @Table(name = "operacoes_estudo", indexes = {
         @Index(name = "idx_operacoes_estudo_usuario", columnList = "usuarioId, criadaEm"),
@@ -34,6 +34,10 @@ public class OperacaoEstudo {
 
     @Column(nullable = false)
     private UUID sessaoId;
+
+    /** Par negociado (BTCUSDT, ETHUSDT, PAXGUSDT). Nulo em operacoes de antes dos outros ativos: eram todas BTC. */
+    @Column(length = 12)
+    private String simbolo;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
@@ -110,13 +114,14 @@ public class OperacaoEstudo {
         // JPA
     }
 
-    public static OperacaoEstudo nova(String usuarioId, UUID sessaoId, Direcao direcao, TipoPrevisao tipo,
-                                      ModoEstudo modo, BigDecimal nocionalBrl, BigDecimal precoAgora,
-                                      BigDecimal precoPrevisto, Instant agora) {
+    public static OperacaoEstudo nova(String usuarioId, UUID sessaoId, String simbolo, Direcao direcao,
+                                      TipoPrevisao tipo, ModoEstudo modo, BigDecimal nocionalBrl,
+                                      BigDecimal precoAgora, BigDecimal precoPrevisto, Instant agora) {
         OperacaoEstudo o = new OperacaoEstudo();
         o.id = UUID.randomUUID();
         o.usuarioId = usuarioId;
         o.sessaoId = sessaoId;
+        o.simbolo = simbolo;
         o.direcao = direcao;
         o.tipo = tipo;
         o.modo = modo;
@@ -187,6 +192,10 @@ public class OperacaoEstudo {
 
     public UUID getSessaoId() {
         return sessaoId;
+    }
+
+    public String getSimbolo() {
+        return simbolo == null ? AtivoEstudo.BTC.simbolo() : simbolo;
     }
 
     public Direcao getDirecao() {

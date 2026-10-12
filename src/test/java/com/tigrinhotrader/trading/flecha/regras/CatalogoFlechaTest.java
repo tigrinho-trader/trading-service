@@ -56,6 +56,11 @@ class CatalogoFlechaTest {
         double anterior = 0;
         for (TipoFlecha t : TipoFlecha.values()) {
             double rendimento = t.fatorMoedas().doubleValue() / t.fatorPreco();
+            if (t.passaroAlvo().isPresent()) {
+                // flechas de mercado: todas rendem o mesmo, mais que a de diamante
+                assertThat(rendimento).isEqualTo(2.0).isGreaterThan(1.5);
+                continue;
+            }
             assertThat(rendimento).isGreaterThan(anterior);
             anterior = rendimento;
         }
@@ -104,13 +109,48 @@ class CatalogoFlechaTest {
     }
 
     @Test
+    void passarosEFlechasDeEthereumEOuroSaoComoOsDoBitcoin() {
+        for (Campo c : Campo.values()) {
+            assertThat(c.temNoPool(Passaro.ETH)).isTrue();
+            assertThat(c.temNoPool(Passaro.OURO)).isTrue();
+            assertThat(c.pool()).doesNotContainKeys(Passaro.ETH, Passaro.OURO);
+        }
+        assertThat(Passaro.ETH.emTodoCampo()).isTrue();
+        assertThat(Passaro.OURO.emTodoCampo()).isTrue();
+        // vilarejo: 3 x 2 = 6, a flecha do ativo dobra: 12
+        assertThat(Campo.VILAREJO.moedasAcerto(Passaro.ETH, TipoFlecha.ETH, 1)).isEqualTo(12);
+        assertThat(Campo.VILAREJO.moedasAcerto(Passaro.OURO, TipoFlecha.OURO, 1)).isEqualTo(12);
+        // cada flecha de mercado so acerta o passaro do seu ativo
+        assertThat(TipoFlecha.ETH.acerta(Passaro.ETH)).isTrue();
+        assertThat(TipoFlecha.ETH.acerta(Passaro.BTC)).isFalse();
+        assertThat(TipoFlecha.ETH.acerta(Passaro.OURO)).isFalse();
+        assertThat(TipoFlecha.OURO.acerta(Passaro.OURO)).isTrue();
+        assertThat(TipoFlecha.OURO.acerta(Passaro.GOLD)).isFalse();
+        assertThat(TipoFlecha.BTC.acerta(Passaro.ETH)).isFalse();
+        assertThat(TipoFlecha.WOOD.acerta(Passaro.ETH)).isTrue();
+        assertThat(TipoFlecha.GOLD.acerta(Passaro.OURO)).isTrue();
+        assertThat(TipoFlecha.BTC.passaroAlvo()).contains(Passaro.BTC);
+        assertThat(TipoFlecha.ETH.passaroAlvo()).contains(Passaro.ETH);
+        assertThat(TipoFlecha.OURO.passaroAlvo()).contains(Passaro.OURO);
+        assertThat(TipoFlecha.IRON.passaroAlvo()).isEmpty();
+        // nome diferente da flecha de ouro comum, para as mensagens nao confundirem
+        assertThat(TipoFlecha.OURO.nome()).isEqualTo("Ouro PAXG");
+        assertThat(TipoFlecha.GOLD.nome()).isEqualTo("Ouro");
+        assertThat(TipoFlecha.porId("ouro")).contains(TipoFlecha.OURO);
+        assertThat(Passaro.porId("eth")).contains(Passaro.ETH);
+    }
+
+    @Test
     void tabelasDePassarosEFlechas() {
         assertThat(Passaro.values()).extracting(Passaro::id)
-                .containsExactly("red", "big", "yellow", "blue", "gold", "btc");
-        assertThat(Passaro.values()).extracting(Passaro::moedas).containsExactly(2, 1, 4, 5, 15, 3);
+                .containsExactly("red", "big", "yellow", "blue", "gold", "btc", "eth", "ouro");
+        assertThat(Passaro.values()).extracting(Passaro::moedas).containsExactly(2, 1, 4, 5, 15, 3, 3, 3);
         assertThat(TipoFlecha.values()).extracting(TipoFlecha::id)
-                .containsExactly("wood", "iron", "gold", "diamond", "btc");
-        assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(1, 2, 4, 8, 1);
+                .containsExactly("wood", "iron", "gold", "diamond", "btc", "eth", "ouro");
+        assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(1, 2, 4, 8, 1, 1, 1);
+        assertThat(TipoFlecha.ETH.fatorMoedas()).isEqualByComparingTo("2");
+        assertThat(TipoFlecha.OURO.fatorMoedas()).isEqualByComparingTo("2");
+        assertThat(TipoFlecha.ETH.nome()).isEqualTo("Ethereum");
         assertThat(TipoFlecha.BTC.fatorMoedas()).isEqualByComparingTo("2");
         assertThat(TipoFlecha.BTC.nome()).isEqualTo("Bitcoin");
         assertThat(TipoFlecha.IRON.fatorMoedas()).isEqualByComparingTo("2.5");

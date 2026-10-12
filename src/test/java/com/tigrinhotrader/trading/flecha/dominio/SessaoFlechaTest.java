@@ -40,7 +40,8 @@ class SessaoFlechaTest {
         assertThat(s.getUltimaAtividadeEm()).isEqualTo(agora);
         assertThat(s.getUltimoTiroEm()).isNull();
         assertThat(s.getRestantes().comoMapa()).containsExactly(Map.entry("wood", 10), Map.entry("iron", 5),
-                Map.entry("gold", 2), Map.entry("diamond", 1), Map.entry("btc", 0));
+                Map.entry("gold", 2), Map.entry("diamond", 1), Map.entry("btc", 0), Map.entry("eth", 0),
+                Map.entry("ouro", 0));
         assertThat(s.getDisparadas().total()).isZero();
     }
 
@@ -116,14 +117,20 @@ class SessaoFlechaTest {
         copia.somar(TipoFlecha.GOLD, -1);
         copia.somar(TipoFlecha.WOOD, 2);
         copia.somar(TipoFlecha.BTC, 4);
+        copia.somar(TipoFlecha.ETH, 3);
+        copia.somar(TipoFlecha.OURO, 1);
 
         assertThat(original.get(TipoFlecha.GOLD)).isEqualTo(3);
         assertThat(copia.comoMapa()).containsExactly(Map.entry("wood", 2), Map.entry("iron", 0),
-                Map.entry("gold", 2), Map.entry("diamond", 0), Map.entry("btc", 4));
-        assertThat(copia.total()).isEqualTo(8);
+                Map.entry("gold", 2), Map.entry("diamond", 0), Map.entry("btc", 4), Map.entry("eth", 3),
+                Map.entry("ouro", 1));
+        assertThat(copia.total()).isEqualTo(12);
         assertThat(copia.copia().get(TipoFlecha.BTC)).isEqualTo(4);
-        // reserva real: flecha base 20, bitcoin custa 1x
-        assertThat(copia.custo(Campo.RESERVA_REAL)).isEqualByComparingTo(String.valueOf(2 * 20 + 2 * 80 + 4 * 20));
+        assertThat(copia.copia().get(TipoFlecha.ETH)).isEqualTo(3);
+        assertThat(copia.copia().get(TipoFlecha.OURO)).isEqualTo(1);
+        // reserva real: flecha base 20, flechas de mercado custam 1x
+        assertThat(copia.custo(Campo.RESERVA_REAL))
+                .isEqualByComparingTo(String.valueOf(2 * 20 + 2 * 80 + 4 * 20 + 3 * 20 + 20));
         assertThat(Aljava.vazia().custo(Campo.RESERVA_REAL)).isEqualByComparingTo("0");
     }
 }

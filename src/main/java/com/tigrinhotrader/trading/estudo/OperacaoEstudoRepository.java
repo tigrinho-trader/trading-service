@@ -14,7 +14,10 @@ public interface OperacaoEstudoRepository extends JpaRepository<OperacaoEstudo, 
 
     Optional<OperacaoEstudo> findByIdAndUsuarioId(UUID id, String usuarioId);
 
-    long countBySessaoId(UUID sessaoId);
+    /** Operacoes da sessao num ativo; as antigas, sem simbolo, contam como BTCUSDT. */
+    @Query("select count(o) from OperacaoEstudo o where o.sessaoId = :sessaoId "
+            + "and coalesce(o.simbolo, 'BTCUSDT') = :simbolo")
+    long contarDaSessaoNoAtivo(@Param("sessaoId") UUID sessaoId, @Param("simbolo") String simbolo);
 
     Optional<OperacaoEstudo> findFirstByUsuarioIdOrderByCriadaEmDesc(String usuarioId);
 
@@ -39,4 +42,13 @@ public interface OperacaoEstudoRepository extends JpaRepository<OperacaoEstudo, 
             + "from OperacaoEstudo o where o.modo = :modo "
             + "and o.status = com.tigrinhotrader.trading.estudo.StatusOperacao.FECHADA")
     NumerosEstudo resumir(@Param("modo") ModoEstudo modo);
+
+    /** Os mesmos numeros por ativo e modo (operacoes sem simbolo contam como BTCUSDT). */
+    @Query("select new com.tigrinhotrader.trading.estudo.NumerosAtivo(coalesce(o.simbolo, 'BTCUSDT'), o.modo, "
+            + "count(o), coalesce(sum(case when o.acertouDirecao = true then 1L else 0L end), 0L), "
+            + "coalesce(sum(o.resultadoBrutoBrl), 0), coalesce(sum(o.taxasBrl), 0), "
+            + "coalesce(sum(o.resultadoLiquidoBrl), 0), coalesce(sum(o.resultadoBinarioBrl), 0)) "
+            + "from OperacaoEstudo o where o.status = com.tigrinhotrader.trading.estudo.StatusOperacao.FECHADA "
+            + "group by coalesce(o.simbolo, 'BTCUSDT'), o.modo order by coalesce(o.simbolo, 'BTCUSDT'), o.modo")
+    List<NumerosAtivo> resumirPorAtivo();
 }
