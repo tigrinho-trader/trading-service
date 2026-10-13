@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Estudo da sabedoria das massas: a operacao feita com cada flecha de mercado (que gasta a flecha da sessao aberta
- * e e liquidada como aposta binaria de 100 moedas) e o resumo do estudo.
+ * e e liquidada como aposta de 100 moedas mais o resultado liquido da operacao) e o resumo do estudo.
  */
 @RestController
 @RequestMapping("/jogos/flecha/estudo")
@@ -42,8 +42,10 @@ public class EstudoController {
 
     /**
      * O que o jogador ve: o ativo, a direcao, o modo e, quando fechar, quanto a operacao ganhou ou perdeu.
-     * {@code moedasPagas}: o que a aposta de 100 moedas pagou (200 acertou, 100 empatou/devolvida, 0 errou), nulo
-     * ate liquidar. {@code sessao}: a sessao da flecha, com a aljava e os ganhos atualizados (nula se nao existe).
+     * {@code moedasPagas}: o que a aposta de 100 moedas pagou, numero com 2 casas: 100 + 10 x resultadoLiquidoBrl
+     * na fechada (ex.: 99.40, 100.31; nunca menos que 0), 100 na recusada ou com falha; nulo ate liquidar.
+     * Operacoes antigas guardam o pagamento da regra anterior (200/100/0). {@code sessao}: a sessao da flecha, com
+     * a aljava e os ganhos atualizados (nula se nao existe).
      */
     public record OperacaoResponse(UUID id, String simbolo, Direcao direcao, TipoPrevisao tipo, ModoEstudo modo,
                                    StatusOperacao status, String motivo, BigDecimal nocionalBrl,
@@ -51,7 +53,7 @@ public class EstudoController {
                                    BigDecimal precoSaida, BigDecimal resultadoBrutoBrl, BigDecimal taxasBrl,
                                    BigDecimal resultadoLiquidoBrl, Boolean acertouDirecao,
                                    BigDecimal resultadoBinarioBrl, Instant criadaEm, Instant fechadaEm,
-                                   Integer moedasPagas, SessaoResponse sessao) {
+                                   BigDecimal moedasPagas, SessaoResponse sessao) {
 
         static OperacaoResponse de(Registro r) {
             OperacaoEstudo o = r.operacao();

@@ -1,23 +1,37 @@
 package com.tigrinhotrader.trading.config;
 
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * O Hibernate 6 cria um CHECK com os valores do enum na coluna {@code tipo}, e o {@code ddl-auto: update} nao
- * atualiza constraints que ja existem. Bancos criados antes do tipo BARREIRA recusariam a ordem nova, entao a
- * constraint antiga sai na subida (o enum do Java continua validando). Idempotente; vira migration se o projeto
- * adotar Flyway.
+ * Ajustes de esquema que o {@code ddl-auto: update} nao faz. Idempotentes; viram migrations se o projeto adotar
+ * Flyway.
+ *
+ * <p>O Hibernate 6 cria um CHECK com os valores do enum na coluna {@code tipo}, e o update nao atualiza constraints
+ * que ja existem. Bancos criados antes do tipo BARREIRA recusariam a ordem nova, entao a constraint antiga sai na
+ * subida (o enum do Java continua validando).
+ *
+ * <p>O update tambem nao muda o tipo de uma coluna: {@code operacoes_estudo.moedas_pagas} nasceu {@code integer}
+ * (pagamento 200/100/0) e agora guarda centavos. No Postgres, se ainda for inteira, vira {@code numeric(14,2)}
+ * (sem perda: as linhas antigas ficam com os valores delas). No H2 dos testes, ou sem a tabela, nao faz nada.
  */
 @Component
 public class AjusteEsquema implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(AjusteEsquema.class);
+
+    static final String TIPO_MOEDAS_PAGAS = "select data_type from information_schema.columns"
+            + " where table_schema = current_schema() and table_name = 'operacoes_estudo'"
+            + " and column_name = 'moedas_pagas'";
+    static final String MOEDAS_PAGAS_DECIMAL =
+            "alter table operacoes_estudo alter column moedas_pagas type numeric(14,2)";
 
     private final JdbcTemplate jdbc;
 
@@ -32,5 +46,25 @@ public class AjusteEsquema implements ApplicationRunner {
         } catch (DataAccessException e) {
             log.warn("Nao consegui remover ordens_tipo_check: {}", e.getMessage());
         }
+        try {
+            moedasPagasComCentavos();
+        } catch (DataAccessException e) {
+            log.warn("Nao consegui converter operacoes_estudo.moedas_pagas para numeric: {}", e.getMessage());
+        }
+    }
+
+    /** Converte {@code moedas_pagas} de integer para numeric(14,2), so no Postgres e so se ainda for inteira. */
+    void moedasPagasComCentavos() {
+        String banco = jdbc.execute((ConnectionCallback<String>) c -> c.getMetaData().getDatabaseProductName());
+        if (!"PostgreSQL".equals(banco)) {
+            return;
+        }
+        List<String> tipo = jdbc.queryForList(TIPO_MOEDAS_PAGAS, String.class);
+        if (tipo.isEmpty() || !"integer".equalsIgnoreCase(tipo.get(0))) {
+            // tabela ainda nao existe ou coluna ja convertida
+            return;
+        }
+        jdbc.execute(MOEDAS_PAGAS_DECIMAL);
+        log.info("Coluna operacoes_estudo.moedas_pagas convertida de integer para numeric(14,2)");
     }
 }

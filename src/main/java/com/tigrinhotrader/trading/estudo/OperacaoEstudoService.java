@@ -35,11 +35,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ativo dela, na direcao que o jogador previu, aberta na hora e fechada {@code fechaApos} depois (o tempo de voo da
  * flecha). No modo REAL o dinheiro da operacao e do dono do jogo.
  *
- * <p>Para o jogador cada flecha de mercado e uma aposta binaria de
+ * <p>Para o jogador cada flecha de mercado e uma aposta de
  * {@link com.tigrinhotrader.trading.flecha.regras.RegrasFlecha#PRECO_FLECHA_MERCADO} moedas (paga na compra da
  * flecha): registrar a operacao gasta a flecha da sessao aberta e, quando a operacao termina, o servidor liquida a
- * aposta com os precos dele (ver {@link OperacaoEstudo#liquidar()}). Com a sessao ainda aberta as moedas entram nos
- * ganhos dela; com a sessao ja encerrada vao direto para a carteira num ordem.executada proprio da operacao.
+ * aposta com o resultado liquido dela em moedas (ver {@link OperacaoEstudo#liquidar()}). Com a sessao ainda aberta
+ * as moedas entram nos ganhos dela; com a sessao ja encerrada vao direto para a carteira num ordem.executada
+ * proprio da operacao. O placar de acertos (direcao) continua binario.
  *
  * <p>So o ativo configurado ({@code estudo.simbolo}, BTCUSDT) usa a corretora configurada, que pode ser REAL; os
  * outros ativos sao sempre simulados com o preco real.
@@ -357,25 +358,34 @@ public class OperacaoEstudoService {
         if (operacao == null || !operacao.aguardaLiquidacao()) {
             return;
         }
-        int moedas = operacao.liquidar();
+        BigDecimal moedas = operacao.liquidar();
         // flush antes de pagar: se outra liquidacao chegou primeiro, o conflito de versao aparece aqui
         operacoes.saveAndFlush(operacao);
         Optional<SessaoFlecha> aberta = sessoes.findById(operacao.getSessaoId()).filter(SessaoFlecha::isAberta);
         if (aberta.isPresent()) {
-            aberta.get().receberApostaDeMercado(moedas, operacao.ganhouAposta());
+            // acerto na sessao = acertou a direcao, mesmo que as taxas tenham comido o lucro
+            aberta.get().receberApostaDeMercado(moedas, operacao.acertouAposta());
             sessoes.saveAndFlush(aberta.get());
-        } else if (moedas > 0) {
+        } else if (moedas.signum() > 0) {
             publisher.publicarSessaoFlecha(pagamento(operacao, relogio.instant()));
         }
     }
 
-    /** Pagamento de uma aposta liquidada depois de a sessao encerrar, no formato que a carteira consome. */
+    /**
+     * Pagamento de uma aposta liquidada depois de a sessao encerrar, no formato que a carteira consome: valorLiquido
+     * = moedas pagas (com centavos); resultado compara o pagamento com a aposta (GANHOU/PERDEU/EMPATOU); acertos = 1
+     * se acertou a direcao.
+     */
     static SessaoFlechaEncerradaEvento pagamento(OperacaoEstudo o, Instant agora) {
-        boolean ganhou = o.ganhouAposta();
-        BigDecimal pagas = BigDecimal.valueOf(o.getMoedasPagas());
+        BigDecimal pagas = o.getMoedasPagas();
+        String resultado = switch (Integer.signum(o.compararPagamento())) {
+            case 1 -> "GANHOU";
+            case -1 -> "PERDEU";
+            default -> "EMPATOU";
+        };
         return new SessaoFlechaEncerradaEvento(o.referenciaPagamento(), o.getUsuarioId(), o.getSimbolo(),
                 SessaoFlechaEncerradaEvento.TIPO_FLECHA_MERCADO, BigDecimal.valueOf(o.getApostaMoedas()),
-                ganhou ? "GANHOU" : "EMPATOU", pagas, agora, pagas, ganhou ? 1 : 0);
+                resultado, pagas, agora, pagas, o.acertouAposta() ? 1 : 0);
     }
 
     /** Reais por USDT: cotacao ao vivo de USDTBRL se houver, senao o valor de reserva configurado. */

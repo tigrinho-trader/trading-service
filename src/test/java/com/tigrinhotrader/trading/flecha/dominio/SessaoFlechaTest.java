@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.tigrinhotrader.trading.flecha.regras.Campo;
 import com.tigrinhotrader.trading.flecha.regras.Passaro;
 import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -90,16 +91,16 @@ class SessaoFlechaTest {
         assertThat(perdeu.resultado()).isEqualByComparingTo("-5");
         assertThat(perdeu.resultadoFinal()).isEqualTo("PERDEU");
 
-        // so a aposta de mercado rende: custo 5 + 100, acertou a direcao paga 200
+        // so a aposta de mercado rende: custo 5 + 100, a operacao lucrou R$ 10,50 e pagou 205
         SessaoFlecha ganhou = sessao(Campo.VILAREJO, Map.of(TipoFlecha.BTC, 1));
-        ganhou.receberApostaDeMercado(200, true);
-        assertThat(ganhou.resultado()).isEqualByComparingTo("95");
+        ganhou.receberApostaDeMercado(new BigDecimal("205.00"), true);
+        assertThat(ganhou.resultado()).isEqualByComparingTo("100");
         assertThat(ganhou.resultadoFinal()).isEqualTo("GANHOU");
 
-        // reserva real: 100 + 2 x 100 = 300; uma acertou (200) e outra ficou com o preco parado (100)
+        // reserva real: 100 + 2 x 100 = 300; pagamentos de 200,31 e 99,69 devolvem o custo
         SessaoFlecha empatou = sessao(Campo.RESERVA_REAL, Map.of(TipoFlecha.BTC, 2));
-        empatou.receberApostaDeMercado(200, true);
-        empatou.receberApostaDeMercado(100, false);
+        empatou.receberApostaDeMercado(new BigDecimal("200.31"), true);
+        empatou.receberApostaDeMercado(new BigDecimal("99.69"), false);
         empatou.comprar(TipoFlecha.WOOD, 1, agora);
         assertThat(empatou.resultado()).isEqualByComparingTo("0");
         assertThat(empatou.resultadoFinal()).isEqualTo("EMPATOU");
@@ -234,14 +235,16 @@ class SessaoFlechaTest {
         assertThatThrownBy(() -> s.usarFlechaDeMercado(TipoFlecha.WOOD, agora))
                 .isInstanceOf(IllegalStateException.class);
 
-        s.receberApostaDeMercado(200, true);
-        s.receberApostaDeMercado(100, false);
-        s.receberApostaDeMercado(0, false);
-        assertThat(s.getGanhos()).isEqualByComparingTo("300");
+        // pagamentos com centavos (aposta + 10 x resultado liquido): os ganhos guardam 2 casas
+        s.receberApostaDeMercado(new BigDecimal("100.31"), true);
+        s.receberApostaDeMercado(new BigDecimal("99.40"), false);
+        s.receberApostaDeMercado(new BigDecimal("0.00"), false);
+        assertThat(s.getGanhos()).isEqualByComparingTo("199.71").hasScaleOf(2);
         assertThat(s.getAcertos()).isEqualTo(1);
 
         s.encerrar(agora);
-        assertThatThrownBy(() -> s.receberApostaDeMercado(100, false)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> s.receberApostaDeMercado(BigDecimal.TEN, false))
+                .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> s.usarFlechaDeMercado(TipoFlecha.BTC, agora))
                 .isInstanceOf(IllegalStateException.class);
     }

@@ -122,8 +122,8 @@ class OperacaoEstudoServiceTest {
 
         assertThat(esquecida.getStatus()).isEqualTo(StatusOperacao.FECHADA);
         assertThat(esquecida.getResultadoLiquidoBrl()).isEqualByComparingTo("1");
-        // a sessao nao existe mais (mock vazio): o acerto vai direto para a carteira
-        assertThat(esquecida.getMoedasPagas()).isEqualTo(200);
+        // a sessao nao existe mais (mock vazio): o pagamento (100 + 10 x R$ 1) vai direto para a carteira
+        assertThat(esquecida.getMoedasPagas()).isEqualByComparingTo("110.00");
         verify(publisher).publicarSessaoFlecha(any());
         assertThat(travada.getStatus()).isEqualTo(StatusOperacao.FALHOU);
         assertThat(travada.getMotivo()).contains("Nao abriu a tempo");
@@ -167,13 +167,23 @@ class OperacaoEstudoServiceTest {
         return o;
     }
 
+    /**
+     * Operacao terminada; na FECHADA compra 1 unidade a 100 e vende a {@code precoSaida}, com cambio 1: o resultado
+     * liquido em reais e {@code precoSaida - 100}.
+     */
     private static OperacaoEstudo criarTerminada(StatusOperacao status, String precoSaida, UUID sessaoId) {
+        return criarTerminada(status, precoSaida, sessaoId, "-100");
+    }
+
+    /** Igual, com o fluxo da entrada escolhido (ex.: -100.05 = taxa de 0,05 na compra). */
+    private static OperacaoEstudo criarTerminada(StatusOperacao status, String precoSaida, UUID sessaoId,
+                                                 String fluxoEntrada) {
         OperacaoEstudo o = OperacaoEstudo.nova("u", sessaoId, "ETHUSDT", Direcao.ALTA, TipoPrevisao.BINARIA,
                 ModoEstudo.SIMULADO, BigDecimal.TEN, null, null, AGORA);
         switch (status) {
             case FECHADA -> {
-                Execucao entrada = new Execucao("a", BigDecimal.ONE, new BigDecimal("100"), new BigDecimal("-100"),
-                        BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO);
+                Execucao entrada = new Execucao("a", BigDecimal.ONE, new BigDecimal("100"),
+                        new BigDecimal(fluxoEntrada), BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO);
                 o.registrarAbertura(entrada, BigDecimal.ONE, AGORA);
                 Execucao saida = new Execucao("f", BigDecimal.ONE, new BigDecimal(precoSaida),
                         new BigDecimal(precoSaida), BigDecimal.ONE.negate(), BigDecimal.ZERO, BigDecimal.ZERO);
@@ -192,14 +202,69 @@ class OperacaoEstudoServiceTest {
     }
 
     @Test
+    void liquidacaoPagaAApostaMaisDezVezesOResultadoLiquido() {
+        // {status, preco de saida (resultado liquido = preco - 100), moedas pagas, ganhou a aposta, acertou a direcao}
+        Object[][] casos = {
+                {StatusOperacao.FECHADA, "99.94", "99.40", false, false},     // -R$ 0,06
+                {StatusOperacao.FECHADA, "100.031", "100.31", true, true},    // +R$ 0,031
+                {StatusOperacao.FECHADA, "100.0005", "100.01", true, true},   // 100,005: HALF_UP
+                {StatusOperacao.FECHADA, "99.9995", "100.00", false, false},  // 99,995: HALF_UP, devolve a aposta
+                {StatusOperacao.FECHADA, "100", "100.00", false, false},      // preco parado, sem taxa
+                {StatusOperacao.FECHADA, "101", "110.00", true, true},
+                {StatusOperacao.FECHADA, "90", "0.00", false, false},         // -R$ 10: perde a aposta toda
+                {StatusOperacao.FECHADA, "80", "0.00", false, false},         // -R$ 20: nunca menos que 0
+                {StatusOperacao.FALHOU, null, "100.00", false, false},
+                {StatusOperacao.RECUSADA, null, "100.00", false, false}};
+        for (Object[] caso : casos) {
+            OperacaoEstudo o = criarTerminada((StatusOperacao) caso[0], (String) caso[1], UUID.randomUUID());
+
+            BigDecimal pagas = o.liquidar();
+
+            assertThat(pagas).as("pagamento %s %s", caso[0], caso[1]).isEqualByComparingTo((String) caso[2])
+                    .hasScaleOf(2).isSameAs(o.getMoedasPagas());
+            assertThat(o.ganhouAposta()).as("ganhou %s %s", caso[0], caso[1]).isEqualTo(caso[3]);
+            assertThat(o.acertouAposta()).as("acertou %s %s", caso[0], caso[1]).isEqualTo(caso[4]);
+            assertThat(o.aguardaLiquidacao()).isFalse();
+        }
+    }
+
+    @Test
+    void acertarADirecaoComAsTaxasComendoOLucroPagaMenosQueAApostaMasContaComoAcerto() {
+        OperacaoEstudoService s = servico(false);
+        SessaoFlecha sessao = sessaoAberta();
+        // subiu 0,03 mas a compra custou 0,05 de taxa: liquido -R$ 0,02
+        OperacaoEstudo o = criarTerminada(StatusOperacao.FECHADA, "100.03", sessao.getId(), "-100.05");
+        when(operacoes.findById(o.getId())).thenReturn(Optional.of(o));
+        when(sessoes.findById(sessao.getId())).thenReturn(Optional.of(sessao));
+
+        s.liquidar(o.getId());
+
+        assertThat(o.getResultadoLiquidoBrl()).isEqualByComparingTo("-0.02");
+        assertThat(o.getMoedasPagas()).isEqualByComparingTo("99.80");
+        assertThat(o.ganhouAposta()).isFalse();
+        assertThat(o.compararPagamento()).isNegative();
+        // o placar de acertos continua sendo a direcao
+        assertThat(o.sinalAposta()).isEqualTo(1);
+        assertThat(sessao.getAcertos()).isEqualTo(1);
+        assertThat(sessao.getGanhos()).isEqualByComparingTo("99.80").hasScaleOf(2);
+        // e a carteira, com a sessao ja encerrada: paga 99,80, PERDEU a aposta mas acertou a direcao
+        SessaoFlechaEncerradaEvento pagamento = OperacaoEstudoService.pagamento(o, AGORA);
+        assertThat(pagamento.resultado()).isEqualTo("PERDEU");
+        assertThat(pagamento.valorLiquido()).isEqualByComparingTo("99.80");
+        assertThat(pagamento.acertos()).isEqualTo(1);
+    }
+
+    @Test
     void comASessaoAbertaAApostaEntraNosGanhos() {
         OperacaoEstudoService s = servico(false);
         Object[][] casos = {
-                {StatusOperacao.FECHADA, "101", 200, 1},
-                {StatusOperacao.FECHADA, "100", 100, 0},
-                {StatusOperacao.FECHADA, "99", 0, 0},
-                {StatusOperacao.RECUSADA, null, 100, 0},
-                {StatusOperacao.FALHOU, null, 100, 0}};
+                {StatusOperacao.FECHADA, "101", "110.00", 1},
+                {StatusOperacao.FECHADA, "100", "100.00", 0},
+                {StatusOperacao.FECHADA, "99.94", "99.40", 0},
+                {StatusOperacao.FECHADA, "100.031", "100.31", 1},
+                {StatusOperacao.FECHADA, "80", "0.00", 0},
+                {StatusOperacao.RECUSADA, null, "100.00", 0},
+                {StatusOperacao.FALHOU, null, "100.00", 0}};
         for (Object[] caso : casos) {
             SessaoFlecha sessao = sessaoAberta();
             OperacaoEstudo o = terminada((StatusOperacao) caso[0], (String) caso[1], sessao);
@@ -207,7 +272,8 @@ class OperacaoEstudoServiceTest {
 
             s.liquidar(o.getId());
 
-            assertThat(o.getMoedasPagas()).as("pagamento %s %s", caso[0], caso[1]).isEqualTo(caso[2]);
+            assertThat(o.getMoedasPagas()).as("pagamento %s %s", caso[0], caso[1])
+                    .isEqualByComparingTo((String) caso[2]);
             assertThat(sessao.getGanhos()).isEqualByComparingTo(String.valueOf(caso[2]));
             assertThat(sessao.getAcertos()).isEqualTo(caso[3]);
             assertThat(o.aguardaLiquidacao()).isFalse();
@@ -225,33 +291,41 @@ class OperacaoEstudoServiceTest {
         OperacaoEstudoService s = servico(false);
         SessaoFlecha encerrada = sessaoAberta();
         encerrada.encerrar(AGORA);
-        OperacaoEstudo ganhou = terminada(StatusOperacao.FECHADA, "101", encerrada);
-        OperacaoEstudo perdeu = terminada(StatusOperacao.FECHADA, "99", encerrada);
+        OperacaoEstudo ganhou = terminada(StatusOperacao.FECHADA, "100.031", encerrada);
+        OperacaoEstudo perdeu = terminada(StatusOperacao.FECHADA, "99.94", encerrada);
+        OperacaoEstudo zerou = terminada(StatusOperacao.FECHADA, "80", encerrada);
         OperacaoEstudo recusada = terminada(StatusOperacao.RECUSADA, null, encerrada);
 
         s.liquidar(ganhou.getId());
         s.liquidar(perdeu.getId());
+        s.liquidar(zerou.getId());
         s.liquidar(recusada.getId());
         s.liquidar(ganhou.getId());
 
         ArgumentCaptor<SessaoFlechaEncerradaEvento> eventos = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);
-        verify(publisher, times(2)).publicarSessaoFlecha(eventos.capture());
+        // a que nao pagou nada nao publica
+        verify(publisher, times(3)).publicarSessaoFlecha(eventos.capture());
         SessaoFlechaEncerradaEvento pago = eventos.getAllValues().get(0);
         assertThat(pago.ordemId()).isEqualTo(ganhou.referenciaPagamento()).isNotEqualTo(ganhou.getId());
         assertThat(pago.tipo()).isEqualTo("FLECHA_MERCADO");
         assertThat(pago.simbolo()).isEqualTo("ETHUSDT");
         assertThat(pago.valor()).isEqualByComparingTo("100");
         assertThat(pago.resultado()).isEqualTo("GANHOU");
-        assertThat(pago.valorLiquido()).isEqualByComparingTo("200");
-        assertThat(pago.ganhos()).isEqualByComparingTo("200");
+        assertThat(pago.valorLiquido()).isEqualByComparingTo("100.31").hasScaleOf(2);
+        assertThat(pago.ganhos()).isEqualByComparingTo("100.31");
         assertThat(pago.acertos()).isEqualTo(1);
         assertThat(pago.executadaEm()).isEqualTo(AGORA);
-        SessaoFlechaEncerradaEvento devolvido = eventos.getAllValues().get(1);
+        SessaoFlechaEncerradaEvento perdido = eventos.getAllValues().get(1);
+        assertThat(perdido.ordemId()).isEqualTo(perdeu.referenciaPagamento());
+        assertThat(perdido.resultado()).isEqualTo("PERDEU");
+        assertThat(perdido.valorLiquido()).isEqualByComparingTo("99.40");
+        assertThat(perdido.acertos()).isZero();
+        SessaoFlechaEncerradaEvento devolvido = eventos.getAllValues().get(2);
         assertThat(devolvido.ordemId()).isEqualTo(recusada.referenciaPagamento());
         assertThat(devolvido.resultado()).isEqualTo("EMPATOU");
         assertThat(devolvido.valorLiquido()).isEqualByComparingTo("100");
         assertThat(devolvido.acertos()).isZero();
-        assertThat(perdeu.getMoedasPagas()).isZero();
+        assertThat(zerou.getMoedasPagas()).isZero();
         // a referencia e estavel: a carteira reconhece o mesmo pagamento repetido
         assertThat(ganhou.referenciaPagamento()).isEqualTo(ganhou.referenciaPagamento());
         assertThat(encerrada.getGanhos()).isEqualByComparingTo("0");
@@ -273,7 +347,7 @@ class OperacaoEstudoServiceTest {
         s.liquidar(o.getId());
 
         verify(sessoes, times(2)).saveAndFlush(sessao);
-        assertThat(pendente.getMoedasPagas()).isEqualTo(100);
+        assertThat(pendente.getMoedasPagas()).isEqualByComparingTo("100");
 
         // fila fora do ar com a sessao encerrada: nao propaga, a revisao tenta depois
         SessaoFlecha encerrada = sessaoAberta();
@@ -313,7 +387,7 @@ class OperacaoEstudoServiceTest {
 
         servico(true).revisarPendentes();
 
-        assertThat(pendente.getMoedasPagas()).isEqualTo(100);
+        assertThat(pendente.getMoedasPagas()).isEqualByComparingTo("100");
         assertThat(sessao.getGanhos()).isEqualByComparingTo("100");
     }
 
@@ -324,6 +398,7 @@ class OperacaoEstudoServiceTest {
         assertThat(o.getApostaMoedas()).isEqualTo(100);
         assertThat(o.getMoedasPagas()).isNull();
         assertThat(o.ganhouAposta()).isFalse();
+        assertThat(o.compararPagamento()).isZero();
         assertThat(o.aguardaLiquidacao()).isFalse();
 
         EstudoController.OperacaoResponse semSessao = EstudoController.OperacaoResponse.de(

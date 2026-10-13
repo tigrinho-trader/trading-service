@@ -187,10 +187,13 @@ public class SessaoFlecha {
         ultimaAtividadeEm = agora;
     }
 
-    /** Soma aos ganhos o pagamento da aposta de uma flecha de mercado; acertar a direcao conta como um acerto. */
-    public void receberApostaDeMercado(int moedas, boolean acertou) {
+    /**
+     * Soma aos ganhos o pagamento da aposta de uma flecha de mercado (com centavos: segue o resultado liquido da
+     * operacao); acertar a direcao conta como um acerto.
+     */
+    public void receberApostaDeMercado(BigDecimal moedas, boolean acertou) {
         exigirAberta();
-        ganhos = dinheiro(ganhos.add(BigDecimal.valueOf(moedas)));
+        ganhos = dinheiro(ganhos.add(moedas));
         if (acertou) {
             acertos++;
         }

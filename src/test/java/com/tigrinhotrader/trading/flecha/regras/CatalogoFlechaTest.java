@@ -47,7 +47,7 @@ class CatalogoFlechaTest {
     void flechaDeMercadoCustaCemMoedasEmTodoCampo() {
         // a aposta binaria de R$ 10 do estudo, a 10 moedas = R$ 1
         assertThat(RegrasFlecha.PRECO_FLECHA_MERCADO).isEqualTo(100);
-        assertThat(RegrasFlecha.PAGAMENTO_ACERTO_MERCADO).isEqualTo(200);
+        assertThat(RegrasFlecha.MOEDAS_POR_REAL).isEqualTo(10);
         for (Campo c : Campo.values()) {
             assertThat(c.custoFlecha(TipoFlecha.BTC)).isEqualByComparingTo("100");
             assertThat(c.custoFlecha(TipoFlecha.ETH)).isEqualByComparingTo("100");

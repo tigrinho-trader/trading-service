@@ -1,6 +1,7 @@
 package com.tigrinhotrader.trading.estudo;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -187,6 +189,8 @@ class EstudoApiTest {
         corretora.ids.clear();
         agendador.agendadas.clear();
         relogio.avancar(Duration.ofHours(1));
+        // cambio fixo: o pagamento das apostas segue o resultado liquido em reais
+        precos.atualizar(new PrecoAtualizadoEvento("USDTBRL", new BigDecimal("5.00"), null, relogio.instant()));
     }
 
     private static String novoJogador() {
@@ -268,15 +272,16 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.resultadoLiquidoBrl").value(0.1))   // (8,03 - 8,01) x 5
                 .andExpect(jsonPath("$.resultadoBinarioBrl").value(10))    // aposta binaria de R$ 10: acertou
                 .andExpect(jsonPath("$.fechadaEm").exists())
-                // acertou: a aposta de 100 volta com mais 100, nos ganhos da sessao aberta
-                .andExpect(jsonPath("$.moedasPagas").value(200))
-                .andExpect(jsonPath("$.sessao.ganhos").value(200.0))
+                // a aposta de 100 volta com 10 x o resultado liquido (R$ 0,10), nos ganhos da sessao aberta
+                .andExpect(jsonPath("$.moedasPagas").value(101.0))
+                .andExpect(jsonPath("$.sessao.ganhos").value(101.0))
                 .andExpect(jsonPath("$.sessao.acertos").value(1));
 
         // liquidar de novo nao paga outra vez
         estudo.liquidar(id);
-        assertThat(sessaoAtual(jogador).getGanhos()).isEqualByComparingTo("200");
-        assertThat(operacoes.findById(id)).get().extracting(OperacaoEstudo::getMoedasPagas).isEqualTo(200);
+        assertThat(sessaoAtual(jogador).getGanhos()).isEqualByComparingTo("101");
+        assertThat(operacoes.findById(id)).get().extracting(OperacaoEstudo::getMoedasPagas)
+                .satisfies(m -> assertThat(m).isEqualByComparingTo("101.00"));
 
         // outra pessoa nao ve a operacao; sem usuario e 401
         consultar(novoJogador(), id).andExpect(status().isNotFound());
@@ -340,12 +345,16 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.precoSaida").value(2510))
                 .andExpect(jsonPath("$.acertouDirecao").value(true))
                 .andExpect(jsonPath("$.resultadoBinarioBrl").value(10))
-                .andExpect(jsonPath("$.moedasPagas").value(200));
+                // 0,0024 ETH de 2500 a 2510 menos 0,1% por ponta: R$ 0,0599 -> 100 + 0,599
+                .andExpect(jsonPath("$.resultadoLiquidoBrl").value(0.0599))
+                .andExpect(jsonPath("$.moedasPagas").value(100.6));
         consultar(jogador, ouro).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.acertouDirecao").value(false))
                 .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10))
-                .andExpect(jsonPath("$.moedasPagas").value(0))
-                .andExpect(jsonPath("$.sessao.ganhos").value(200.0))
+                // 0,00181818 PAXG vendido a 3300 e recomprado a 3310, com taxas: R$ -0,1510 -> 100 - 1,51
+                .andExpect(jsonPath("$.resultadoLiquidoBrl").value(-0.151))
+                .andExpect(jsonPath("$.moedasPagas").value(98.49))
+                .andExpect(jsonPath("$.sessao.ganhos").value(199.09))
                 .andExpect(jsonPath("$.sessao.acertos").value(1));
         // a corretora configurada (REAL) nem foi chamada
         assertThat(corretora.ids).isEmpty();
@@ -534,7 +543,8 @@ class EstudoApiTest {
         consultar(jogador, id).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.acertouDirecao").value(false))
                 .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10))
-                .andExpect(jsonPath("$.moedasPagas").value(0));
+                // -0,02 US$ a R$ 5,00 = -R$ 0,10: paga 99
+                .andExpect(jsonPath("$.moedasPagas").value(99.0));
         assertThat(corretora.ids).anyMatch(i -> i.endsWith("f1"));
 
         // outra operacao que nunca fecha
@@ -552,7 +562,7 @@ class EstudoApiTest {
         consultar(jogador, presa).andExpect(jsonPath("$.status").value("FALHOU"))
                 .andExpect(jsonPath("$.motivo").value("Nao fechou: Binance fora do ar"))
                 .andExpect(jsonPath("$.moedasPagas").value(100))
-                .andExpect(jsonPath("$.sessao.ganhos").value(100.0));
+                .andExpect(jsonPath("$.sessao.ganhos").value(199.0));
         assertThat(agendador.agendadas).isEmpty();
         // agendamento atrasado de uma operacao ja terminada nao faz nada
         assertThat(operacoes.findById(presa)).get().extracting(OperacaoEstudo::getTentativasFechar)
@@ -578,8 +588,9 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.status").value("RECUSADA"))
                 .andExpect(jsonPath("$.modo").value("REAL"))
                 .andExpect(jsonPath("$.motivo").value("Muitas operacoes abertas ao mesmo tempo"))
-                // recusada na hora: a aposta ja volta na resposta
+                // recusada na hora: a aposta ja volta na resposta, como numero com centavos
                 .andExpect(jsonPath("$.moedasPagas").value(100))
+                .andExpect(content().string(containsString("\"moedasPagas\":100.00")))
                 .andExpect(jsonPath("$.sessao.ganhos").value(100.0)));
         assertThat(operacoes.findById(recusada)).get().extracting(OperacaoEstudo::getStatus)
                 .isEqualTo(StatusOperacao.RECUSADA);
@@ -615,37 +626,42 @@ class EstudoApiTest {
     @Test
     void apostaLiquidadaDepoisDeEncerrarVaiDiretoParaACarteiraUmaVezSo() throws Exception {
         String jogador = novoJogador();
-        UUID sessao = sessao(jogador, 3);
-        // acerta, empata (preco parado) e erra
-        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
-        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
-        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
-        corretora.fechamentos.add(() -> exec("80400", "8", "-0.0001"));
+        UUID sessao = sessao(jogador, 4);
+        // ganha R$ 0,30, empata (preco parado, sem taxa), perde R$ 0,50 e perde R$ 140 (nao paga nada)
+        for (int i = 0; i < 4; i++) {
+            corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        }
+        corretora.fechamentos.add(() -> exec("80400", "8.06", "-0.0001"));
         corretora.fechamentos.add(() -> exec("80000", "8", "-0.0001"));
         corretora.fechamentos.add(() -> exec("79000", "7.9", "-0.0001"));
+        corretora.fechamentos.add(() -> exec("60000", "-20", "-0.0001"));
         UUID ganhou = idDe(registrar(jogador, sessao, "ALTA"));
         relogio.avancar(Duration.ofSeconds(2));
         UUID empatou = idDe(registrar(jogador, sessao, "QUEDA"));
         relogio.avancar(Duration.ofSeconds(2));
         UUID perdeu = idDe(registrar(jogador, sessao, "ALTA"));
+        relogio.avancar(Duration.ofSeconds(2));
+        UUID zerou = idDe(registrar(jogador, sessao, "ALTA"));
 
         // o jogador sai antes dos 5 s: a sessao vai para a carteira sem as apostas
         SessaoFlecha encerrada = sessoes.encerrar(jogador, sessao);
         assertThat(encerrada.getGanhos()).isEqualByComparingTo("0");
         agendador.rodarAgendadas();
 
-        consultar(jogador, ganhou).andExpect(jsonPath("$.moedasPagas").value(200))
+        consultar(jogador, ganhou).andExpect(jsonPath("$.moedasPagas").value(103.0))
                 .andExpect(jsonPath("$.sessao.status").value("ENCERRADA"))
                 .andExpect(jsonPath("$.sessao.ganhos").value(0.0));
         consultar(jogador, empatou).andExpect(jsonPath("$.resultadoBinarioBrl").value(0))
                 .andExpect(jsonPath("$.moedasPagas").value(100));
-        consultar(jogador, perdeu).andExpect(jsonPath("$.moedasPagas").value(0));
+        consultar(jogador, perdeu).andExpect(jsonPath("$.moedasPagas").value(95.0));
+        consultar(jogador, zerou).andExpect(jsonPath("$.moedasPagas").value(0));
 
         List<SessaoFlechaEncerradaEvento> pagamentos = pagamentosPublicados();
-        // errou nao paga nada: nenhum evento
-        assertThat(pagamentos).hasSize(2);
+        // a que nao pagou nada nao gera evento
+        assertThat(pagamentos).hasSize(3);
         OperacaoEstudo opGanhou = operacoes.findById(ganhou).orElseThrow();
         OperacaoEstudo opEmpatou = operacoes.findById(empatou).orElseThrow();
+        OperacaoEstudo opPerdeu = operacoes.findById(perdeu).orElseThrow();
         SessaoFlechaEncerradaEvento pagGanhou = pagamentos.get(0);
         assertThat(pagGanhou.ordemId()).isEqualTo(opGanhou.referenciaPagamento()).isNotEqualTo(ganhou)
                 .isNotEqualTo(sessao);
@@ -653,19 +669,52 @@ class EstudoApiTest {
         assertThat(pagGanhou.simbolo()).isEqualTo("BTCUSDT");
         assertThat(pagGanhou.valor()).isEqualByComparingTo("100");
         assertThat(pagGanhou.resultado()).isEqualTo("GANHOU");
-        assertThat(pagGanhou.valorLiquido()).isEqualByComparingTo("200");
+        assertThat(pagGanhou.valorLiquido()).isEqualByComparingTo("103.00");
         assertThat(pagGanhou.acertos()).isEqualTo(1);
         SessaoFlechaEncerradaEvento pagEmpatou = pagamentos.get(1);
         assertThat(pagEmpatou.ordemId()).isEqualTo(opEmpatou.referenciaPagamento())
                 .isNotEqualTo(pagGanhou.ordemId());
         assertThat(pagEmpatou.resultado()).isEqualTo("EMPATOU");
         assertThat(pagEmpatou.valorLiquido()).isEqualByComparingTo("100");
+        SessaoFlechaEncerradaEvento pagPerdeu = pagamentos.get(2);
+        assertThat(pagPerdeu.ordemId()).isEqualTo(opPerdeu.referenciaPagamento());
+        assertThat(pagPerdeu.resultado()).isEqualTo("PERDEU");
+        assertThat(pagPerdeu.valorLiquido()).isEqualByComparingTo("95.00");
+        assertThat(pagPerdeu.acertos()).isZero();
 
         // liquidar de novo (revisao, agendamento repetido) nao publica outra vez
         estudo.liquidar(ganhou);
         estudo.liquidar(empatou);
         estudo.liquidar(perdeu);
-        assertThat(pagamentosPublicados()).hasSize(2);
+        estudo.liquidar(zerou);
+        assertThat(pagamentosPublicados()).hasSize(3);
+    }
+
+    @Test
+    void moedasPagasSaiComoNumeroComCentavosNoJson() throws Exception {
+        String jogador = novoJogador();
+        UUID sessao = sessao(jogador, 1);
+        // o preco subiu (acertou a direcao), mas as taxas comeram o lucro: -0,012 US$ x 5 = -R$ 0,06
+        corretora.aberturas.add(() -> exec("80000", "-8.01", "0.0001"));
+        corretora.fechamentos.add(() -> exec("80010", "7.998", "-0.0001"));
+
+        UUID id = idDe(registrar(jogador, sessao, "ALTA").andExpect(status().isCreated())
+                .andExpect(content().string(containsString("\"moedasPagas\":null"))));
+        agendador.rodarAgendadas();
+
+        consultar(jogador, id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FECHADA"))
+                .andExpect(jsonPath("$.acertouDirecao").value(true))
+                .andExpect(jsonPath("$.resultadoLiquidoBrl").value(-0.06))
+                .andExpect(jsonPath("$.moedasPagas").isNumber())
+                .andExpect(jsonPath("$.moedasPagas").value(99.4))
+                .andExpect(content().string(containsString("\"moedasPagas\":99.40")))
+                // acerto na sessao continua sendo a direcao; os ganhos recebem os centavos
+                .andExpect(jsonPath("$.sessao.acertos").value(1))
+                .andExpect(jsonPath("$.sessao.ganhos").value(99.4));
+        assertThat(operacoes.findById(id)).get().extracting(OperacaoEstudo::getMoedasPagas)
+                .satisfies(m -> assertThat(m).isEqualByComparingTo("99.40").hasScaleOf(2));
+        assertThat(sessaoAtual(jogador).getGanhos()).isEqualByComparingTo("99.40");
     }
 
     private ResultActions meusAcertos(String jogador, UUID sessao) throws Exception {

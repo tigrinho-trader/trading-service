@@ -369,14 +369,14 @@ class SessaoFlechaServiceTest {
 
     @Test
     void resultadoZeroTambemVaiParaACarteiraComoEmpate() {
-        // reserva real: 100 + 2 bitcoin (200); as apostas pagaram 200 (acertou) + 100 (preco parado)
+        // reserva real: 100 + 2 bitcoin (200); as apostas pagaram 200,60 (+R$ 10,06) + 99,40 (-R$ 0,06)
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.RESERVA_REAL,
                 Aljava.de(Map.of(TipoFlecha.BTC, 2)), agora);
         when(repositorio.findByIdAndUsuarioId(s.getId(), "u1")).thenReturn(Optional.of(s));
         s.usarFlechaDeMercado(TipoFlecha.BTC, agora);
         s.usarFlechaDeMercado(TipoFlecha.BTC, agora);
-        s.receberApostaDeMercado(200, true);
-        s.receberApostaDeMercado(100, false);
+        s.receberApostaDeMercado(new BigDecimal("200.60"), true);
+        s.receberApostaDeMercado(new BigDecimal("99.40"), false);
 
         SessaoFlecha encerrada = service.encerrar("u1", s.getId());
 

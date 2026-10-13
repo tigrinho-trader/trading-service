@@ -10,14 +10,15 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
 /**
  * Uma previsao de um jogador (uma flecha de mercado: bitcoin, ethereum ou ouro) e a operacao feita com ela. A flecha
- * e uma aposta binaria de {@code apostaMoedas} moedas que o servidor liquida uma vez, quando a operacao termina,
- * com os precos dele (nunca os do cliente).
+ * e uma aposta de {@code apostaMoedas} moedas que o servidor liquida uma vez, quando a operacao termina, com o
+ * resultado liquido da operacao (nunca com precos do cliente).
  */
 @Entity
 @Table(name = "operacoes_estudo", indexes = {
@@ -27,6 +28,8 @@ import java.util.UUID;
 public class OperacaoEstudo {
 
     private static final int MOTIVO_MAXIMO = 300;
+    private static final BigDecimal MOEDAS_POR_REAL = BigDecimal.valueOf(RegrasFlecha.MOEDAS_POR_REAL);
+    private static final BigDecimal NADA = BigDecimal.ZERO.setScale(2);
 
     @Id
     private UUID id;
@@ -113,8 +116,12 @@ public class OperacaoEstudo {
      * antes da aposta: essas nao sao liquidadas.
      */
     private Integer apostaMoedas;
-    /** Moedas pagas ao jogador pela aposta; nulo ate liquidar. */
-    private Integer moedasPagas;
+    /**
+     * Moedas pagas ao jogador pela aposta, com centavos; nulo ate liquidar. Era inteiro (200/100/0) antes de o
+     * pagamento seguir o resultado liquido: {@code AjusteEsquema} converte a coluna antiga, sem mexer nos valores.
+     */
+    @Column(precision = 14, scale = 2)
+    private BigDecimal moedasPagas;
 
     @Column(nullable = false)
     private int tentativasFechar;
@@ -193,21 +200,21 @@ public class OperacaoEstudo {
     }
 
     /**
-     * Liquida a aposta (uma vez so): FECHADA que acertou a direcao paga o dobro da aposta, com o preco parado devolve
-     * a aposta e errando nao paga nada; RECUSADA ou FALHOU devolve a aposta.
+     * Liquida a aposta (uma vez so). FECHADA paga a aposta mais o resultado liquido da operacao (depois das taxas)
+     * em moedas: {@code apostaMoedas + MOEDAS_POR_REAL x resultadoLiquidoBrl}, arredondado em centavos (HALF_UP) e
+     * nunca menos que 0; vale para acerto, erro e preco parado (ex.: -R$ 0,06 paga 99,40). RECUSADA ou FALHOU
+     * devolve a aposta.
      *
      * @return moedas pagas ao jogador
      */
-    public int liquidar() {
+    public BigDecimal liquidar() {
         if (!aguardaLiquidacao()) {
             throw new IllegalStateException("Operacao " + id + " nao aguarda liquidacao");
         }
-        moedasPagas = status != StatusOperacao.FECHADA ? apostaMoedas
-                : switch (resultadoBinarioBrl.signum()) {
-                    case 1 -> 2 * apostaMoedas;
-                    case 0 -> apostaMoedas;
-                    default -> 0;
-                };
+        BigDecimal aposta = BigDecimal.valueOf(apostaMoedas);
+        BigDecimal pagas = status != StatusOperacao.FECHADA ? aposta
+                : aposta.add(resultadoLiquidoBrl.multiply(MOEDAS_POR_REAL));
+        moedasPagas = pagas.setScale(2, RoundingMode.HALF_UP).max(NADA);
         return moedasPagas;
     }
 
@@ -224,7 +231,20 @@ public class OperacaoEstudo {
 
     /** A aposta liquidada ganhou (pagou mais que a aposta). */
     public boolean ganhouAposta() {
-        return moedasPagas != null && moedasPagas > apostaMoedas;
+        return compararPagamento() > 0;
+    }
+
+    /**
+     * Pagamento contra a aposta: positivo se pagou mais, negativo se pagou menos e 0 se devolveu a aposta (ou ainda
+     * nao liquidou).
+     */
+    public int compararPagamento() {
+        return moedasPagas == null ? 0 : moedasPagas.compareTo(BigDecimal.valueOf(apostaMoedas));
+    }
+
+    /** Acertou a direcao (placar binario do estudo), independente das taxas: conta como acerto na sessao. */
+    public boolean acertouAposta() {
+        return sinalAposta() > 0;
     }
 
     /**
@@ -334,7 +354,7 @@ public class OperacaoEstudo {
         return apostaMoedas;
     }
 
-    public Integer getMoedasPagas() {
+    public BigDecimal getMoedasPagas() {
         return moedasPagas;
     }
 
