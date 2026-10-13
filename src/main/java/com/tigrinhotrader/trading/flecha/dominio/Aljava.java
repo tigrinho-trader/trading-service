@@ -8,7 +8,10 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Quantidade de flechas por tipo. Usada 3 vezes na sessao: compradas, restantes e disparadas. */
+/**
+ * Quantidade de flechas por tipo. Usada 3 vezes na sessao (compradas, restantes e disparadas) e na aljava guardada
+ * do jogador.
+ */
 @Embeddable
 public class Aljava {
 
@@ -39,6 +42,13 @@ public class Aljava {
         Aljava aljava = new Aljava();
         quantidades.forEach(aljava::somar);
         return aljava;
+    }
+
+    /** Nova aljava com a soma das flechas das duas. */
+    public static Aljava soma(Aljava uma, Aljava outra) {
+        Aljava soma = uma.copia();
+        soma.somarTudo(outra);
+        return soma;
     }
 
     public Aljava copia() {
@@ -76,6 +86,42 @@ public class Aljava {
             case ETH -> eth += quantidade;
             case OURO -> ouro += quantidade;
         }
+    }
+
+    /** Soma todas as flechas de outra aljava a esta. */
+    void somarTudo(Aljava outra) {
+        for (TipoFlecha tipo : TipoFlecha.values()) {
+            somar(tipo, outra.get(tipo));
+        }
+    }
+
+    /** Zera todas as flechas e devolve o que havia. */
+    Aljava esvaziar() {
+        Aljava havia = copia();
+        for (TipoFlecha tipo : TipoFlecha.values()) {
+            somar(tipo, -get(tipo));
+        }
+        return havia;
+    }
+
+    /** So as flechas comuns (madeira, ferro, ouro, diamante), que valem no campo onde foram compradas. */
+    public Aljava comuns() {
+        return filtrar(false);
+    }
+
+    /** So as flechas de mercado (bitcoin, ethereum, ouro PAXG), que valem em qualquer campo. */
+    public Aljava deMercado() {
+        return filtrar(true);
+    }
+
+    private Aljava filtrar(boolean mercado) {
+        Aljava filtrada = new Aljava();
+        for (TipoFlecha tipo : TipoFlecha.values()) {
+            if (tipo.deMercado() == mercado) {
+                filtrada.somar(tipo, get(tipo));
+            }
+        }
+        return filtrada;
     }
 
     public int total() {

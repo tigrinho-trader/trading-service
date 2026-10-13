@@ -134,6 +134,10 @@ class FlechaControllerTest {
         return mockMvc.perform(post("/jogos/flecha/sessoes/" + id + "/encerrar").header("X-Usuario-Id", usuario));
     }
 
+    private ResultActions aljava(String usuario) throws Exception {
+        return mockMvc.perform(get("/jogos/flecha/aljava").header("X-Usuario-Id", usuario));
+    }
+
     private EventoNaCarteira eventoPublicado() throws Exception {
         ArgumentCaptor<Object> evento = ArgumentCaptor.forClass(Object.class);
         verify(rabbitTemplate).convertAndSend(eq("tigrinho.eventos"), eq("ordem.executada"), evento.capture());
@@ -167,6 +171,11 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.flechas[4].fatorPreco").value(1))
                 .andExpect(jsonPath("$.flechas[4].fatorMoedas").value(2))
                 .andExpect(jsonPath("$.flechas[4].passaroAlvo").value("btc"))
+                .andExpect(jsonPath("$.flechas[4].precoFixo").value(100))
+                .andExpect(jsonPath("$.flechas[5].precoFixo").value(100))
+                .andExpect(jsonPath("$.flechas[6].precoFixo").value(100))
+                .andExpect(jsonPath("$.flechas[0].precoFixo").isEmpty())
+                .andExpect(jsonPath("$.flechas[3].precoFixo").isEmpty())
                 .andExpect(jsonPath("$.flechas[5].id").value("eth"))
                 .andExpect(jsonPath("$.flechas[5].nome").value("Ethereum"))
                 .andExpect(jsonPath("$.flechas[5].passaroAlvo").value("eth"))
@@ -295,6 +304,90 @@ class FlechaControllerTest {
         mockMvc.perform(post("/jogos/flecha/sessoes/" + id + "/flechas").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"flecha\":\"wood\",\"quantidade\":1}")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/jogos/flecha/sessoes/" + id + "/encerrar")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/jogos/flecha/aljava")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aljavaVaziaTemTodoCampoETodoTipo() throws Exception {
+        aljava("sem-nada").andExpect(status().isOk())
+                .andExpect(jsonPath("$.campos.vilarejo.wood").value(0))
+                .andExpect(jsonPath("$.campos.vilarejo.iron").value(0))
+                .andExpect(jsonPath("$.campos.vilarejo.gold").value(0))
+                .andExpect(jsonPath("$.campos.vilarejo.diamond").value(0))
+                .andExpect(jsonPath("$.campos.vilarejo.btc").doesNotExist())
+                .andExpect(jsonPath("$.campos.bosque.diamond").value(0))
+                .andExpect(jsonPath("$.campos.pico.wood").value(0))
+                .andExpect(jsonPath("$.campos['reserva-real'].gold").value(0))
+                .andExpect(jsonPath("$.mercado.btc").value(0))
+                .andExpect(jsonPath("$.mercado.eth").value(0))
+                .andExpect(jsonPath("$.mercado.ouro").value(0))
+                .andExpect(jsonPath("$.mercado.wood").doesNotExist());
+    }
+
+    @Test
+    void sobrasFicamGuardadasNoCampoEAsDeMercadoValemEmTodos() throws Exception {
+        // vilarejo: 5 + 3 madeira (3) + 1 ferro (2) + 1 bitcoin (100) = 110
+        String vilarejo = abrirId("guarda", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":3,\"iron\":1,\"btc\":1}}");
+        atirar("guarda", vilarejo, "{\"flecha\":\"wood\",\"acertos\":[]}").andExpect(status().isOk());
+        encerrar("guarda", vilarejo).andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultado").value(-110.0))
+                .andExpect(jsonPath("$.flechas.wood").value(0));
+        // o resultado da sessao continua ganhos - custo: as flechas guardadas ja foram pagas
+        assertThat(eventoPublicado().valorLiquido()).isEqualByComparingTo("-110");
+
+        aljava("guarda").andExpect(status().isOk())
+                .andExpect(jsonPath("$.campos.vilarejo.wood").value(2))
+                .andExpect(jsonPath("$.campos.vilarejo.iron").value(1))
+                .andExpect(jsonPath("$.campos.bosque.wood").value(0))
+                .andExpect(jsonPath("$.mercado.btc").value(1));
+
+        // no bosque a madeira do vilarejo nao vale, mas a flecha bitcoin sim, sem custo
+        String bosque = objectMapper.readTree(abrir("guarda", "{\"campo\":\"bosque\",\"flechas\":{\"wood\":1}}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.custo").value(18.0))
+                .andExpect(jsonPath("$.flechas.wood").value(1))
+                .andExpect(jsonPath("$.flechas.iron").value(0))
+                .andExpect(jsonPath("$.flechas.btc").value(1))
+                .andExpect(jsonPath("$.compradas.btc").value(0))
+                .andReturn().getResponse().getContentAsString()).get("id").asText();
+        aljava("guarda")
+                .andExpect(jsonPath("$.campos.vilarejo.wood").value(2))
+                .andExpect(jsonPath("$.mercado.btc").value(0));
+        encerrar("guarda", bosque).andExpect(status().isOk());
+        aljava("guarda")
+                .andExpect(jsonPath("$.campos.bosque.wood").value(1))
+                .andExpect(jsonPath("$.mercado.btc").value(1));
+
+        // de volta ao vilarejo sem comprar nada: so a entrada, com as flechas guardadas
+        abrir("guarda", "{\"campo\":\"vilarejo\",\"flechas\":{}}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.custo").value(5.0))
+                .andExpect(jsonPath("$.flechas.wood").value(2))
+                .andExpect(jsonPath("$.flechas.iron").value(1))
+                .andExpect(jsonPath("$.flechas.btc").value(1))
+                .andExpect(jsonPath("$.compradas.wood").value(0));
+        aljava("guarda")
+                .andExpect(jsonPath("$.campos.vilarejo.wood").value(0))
+                .andExpect(jsonPath("$.campos.vilarejo.iron").value(0))
+                .andExpect(jsonPath("$.campos.bosque.wood").value(1))
+                .andExpect(jsonPath("$.mercado.btc").value(0));
+    }
+
+    @Test
+    void limiteDaAljavaContaAsGuardadas() throws Exception {
+        String id = abrirId("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":30}}");
+        encerrar("cheio", id).andExpect(status().isOk());
+
+        abrir("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":11}}")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("A aljava comporta no maximo 40 flechas e voce ja tem 30 guardadas"));
+        // no vilarejo as 30 do pico nao contam
+        String vilarejo = abrirId("cheio", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":11}}");
+        encerrar("cheio", vilarejo).andExpect(status().isOk());
+        abrir("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":10}}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.flechas.wood").value(40))
+                .andExpect(jsonPath("$.compradas.wood").value(10));
     }
 
     @Test
@@ -336,43 +429,26 @@ class FlechaControllerTest {
     }
 
     @Test
-    void flechaBitcoinSoAcertaOPassaroBitcoinEDobraAsMoedas() throws Exception {
-        // vilarejo: entrada 5 + 3 flechas bitcoin de 1
-        String id = abrirId("fbtc", "{\"campo\":\"vilarejo\",\"flechas\":{\"btc\":3}}");
-        atirar("fbtc", id, "{\"flecha\":\"btc\",\"acertos\":[\"red\"]}")
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("A flecha Bitcoin so acerta o passaro btc"));
-        // passaro bitcoin no vilarejo vale 6; a flecha bitcoin dobra: 12
-        atirar("fbtc", id, "{\"flecha\":\"btc\",\"acertos\":[\"btc\"]}")
+    void flechasDeMercadoCustamCemEmTodoCampoENaoPassamPelosTiros() throws Exception {
+        // vilarejo: entrada 5 + 1 bitcoin, 1 ethereum e 1 de ouro PAXG, de 100 cada
+        String id = objectMapper.readTree(abrir("fmerc", "{\"campo\":\"vilarejo\",\"flechas\":{\"btc\":1,\"eth\":1,\"ouro\":1}}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.custo").value(305.0))
+                .andReturn().getResponse().getContentAsString()).get("id").asText();
+        for (String flecha : new String[] {"btc", "eth", "ouro"}) {
+            atirar("fmerc", id, "{\"flecha\":\"" + flecha + "\",\"acertos\":[\"" + flecha + "\"]}")
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.detail").value("Flechas de mercado sao registradas pelo estudo"));
+        }
+        // comprar no meio da sessao tambem custa 100 (na reserva real seria o mesmo)
+        comprar("fmerc", id, "{\"flecha\":\"btc\",\"quantidade\":2}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ganhosTiro").value(12))
-                .andExpect(jsonPath("$.sessao.flechas.btc").value(2));
-    }
-
-    @Test
-    void flechasDeEthereumEOuroSoAcertamOProprioPassaro() throws Exception {
-        // vilarejo: entrada 5 + 2 flechas ethereum + 2 de ouro PAXG, de 1 cada
-        String id = abrirId("feth", "{\"campo\":\"vilarejo\",\"flechas\":{\"eth\":2,\"ouro\":2}}");
-        atirar("feth", id, "{\"flecha\":\"eth\",\"acertos\":[\"btc\"]}")
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("A flecha Ethereum so acerta o passaro eth"));
-        atirar("feth", id, "{\"flecha\":\"ouro\",\"acertos\":[\"eth\"]}")
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("A flecha Ouro PAXG so acerta o passaro ouro"));
-        atirar("feth", id, "{\"flecha\":\"ouro\",\"acertos\":[\"gold\"]}")
-                .andExpect(status().isUnprocessableEntity());
-        // passaro ethereum no vilarejo vale 3 x 2 = 6; a flecha ethereum dobra: 12
-        atirar("feth", id, "{\"flecha\":\"eth\",\"acertos\":[\"eth\"]}")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ganhosTiro").value(12))
-                .andExpect(jsonPath("$.sessao.flechas.eth").value(1))
-                .andExpect(jsonPath("$.sessao.flechas.ouro").value(2));
-        relogio.avancar(Duration.ofSeconds(1));
-        // o passaro do ouro tambem vale 6 no vilarejo; a flecha de ouro PAXG dobra: 12
-        atirar("feth", id, "{\"flecha\":\"ouro\",\"acertos\":[\"ouro\"]}")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ganhosTiro").value(12))
-                .andExpect(jsonPath("$.sessao.flechas.ouro").value(1));
+                .andExpect(jsonPath("$.custo").value(505.0))
+                .andExpect(jsonPath("$.flechas.btc").value(3));
+        String real = abrirId("fmerc-real", "{\"campo\":\"reserva-real\",\"flechas\":{\"eth\":1}}");
+        mockMvc.perform(get("/jogos/flecha/sessoes/atual").header("X-Usuario-Id", "fmerc-real"))
+                .andExpect(jsonPath("$.id").value(real))
+                .andExpect(jsonPath("$.custo").value(200.0));
     }
 
     @Test
@@ -474,7 +550,7 @@ class FlechaControllerTest {
 
     @Test
     void sessoesParadasSaoEncerradasPeloAgendador() throws Exception {
-        String parada = abrirId("dorminhoco", "{\"campo\":\"vilarejo\",\"flechas\":{\"gold\":1}}");
+        String parada = abrirId("dorminhoco", "{\"campo\":\"vilarejo\",\"flechas\":{\"gold\":2}}");
         atirar("dorminhoco", parada, "{\"flecha\":\"gold\",\"acertos\":[\"red\"]}").andExpect(status().isOk());
 
         relogio.avancar(Duration.ofMinutes(9));
@@ -504,9 +580,11 @@ class FlechaControllerTest {
             }
         }
         assertThat(evento).isNotNull();
-        // 5 + 4 = 9 de custo, 22 de ganho
+        // 5 + 2 x 4 = 13 de custo, 22 de ganho
         assertThat(evento.resultado()).isEqualTo("GANHOU");
-        assertThat(evento.valorLiquido()).isEqualByComparingTo("13");
+        assertThat(evento.valorLiquido()).isEqualByComparingTo("9");
         assertThat(evento.executadaEm()).isEqualTo(relogio.instant());
+        // a flecha de ouro que sobrou ficou guardada no vilarejo
+        aljava("dorminhoco").andExpect(jsonPath("$.campos.vilarejo.gold").value(1));
     }
 }

@@ -1,5 +1,6 @@
 package com.tigrinhotrader.trading.estudo;
 
+import com.tigrinhotrader.trading.flecha.regras.RegrasFlecha;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -9,10 +10,15 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Uma previsao de um jogador (uma flecha de mercado: bitcoin, ethereum ou ouro) e a operacao feita com ela. */
+/**
+ * Uma previsao de um jogador (uma flecha de mercado: bitcoin, ethereum ou ouro) e a operacao feita com ela. A flecha
+ * e uma aposta binaria de {@code apostaMoedas} moedas que o servidor liquida uma vez, quando a operacao termina,
+ * com os precos dele (nunca os do cliente).
+ */
 @Entity
 @Table(name = "operacoes_estudo", indexes = {
         @Index(name = "idx_operacoes_estudo_usuario", columnList = "usuarioId, criadaEm"),
@@ -102,6 +108,14 @@ public class OperacaoEstudo {
     @Column(precision = 14, scale = 4)
     private BigDecimal resultadoBinarioBrl;
 
+    /**
+     * Moedas apostadas com a flecha de mercado ({@link RegrasFlecha#PRECO_FLECHA_MERCADO}). Nulo em operacoes de
+     * antes da aposta: essas nao sao liquidadas.
+     */
+    private Integer apostaMoedas;
+    /** Moedas pagas ao jogador pela aposta; nulo ate liquidar. */
+    private Integer moedasPagas;
+
     @Column(nullable = false)
     private int tentativasFechar;
 
@@ -129,6 +143,7 @@ public class OperacaoEstudo {
         o.nocionalBrl = nocionalBrl;
         o.precoAgoraJogo = precoAgora;
         o.precoPrevistoJogo = precoPrevisto;
+        o.apostaMoedas = RegrasFlecha.PRECO_FLECHA_MERCADO;
         o.criadaEm = agora;
         return o;
     }
@@ -169,6 +184,55 @@ public class OperacaoEstudo {
 
     public void falhar(String porque, Instant agora) {
         terminar(StatusOperacao.FALHOU, porque, agora);
+    }
+
+    /** Terminou (FECHADA, RECUSADA ou FALHOU) com aposta ainda nao liquidada. */
+    public boolean aguardaLiquidacao() {
+        return apostaMoedas != null && moedasPagas == null && status != StatusOperacao.ABRINDO
+                && status != StatusOperacao.ABERTA;
+    }
+
+    /**
+     * Liquida a aposta (uma vez so): FECHADA que acertou a direcao paga o dobro da aposta, com o preco parado devolve
+     * a aposta e errando nao paga nada; RECUSADA ou FALHOU devolve a aposta.
+     *
+     * @return moedas pagas ao jogador
+     */
+    public int liquidar() {
+        if (!aguardaLiquidacao()) {
+            throw new IllegalStateException("Operacao " + id + " nao aguarda liquidacao");
+        }
+        moedasPagas = status != StatusOperacao.FECHADA ? apostaMoedas
+                : switch (resultadoBinarioBrl.signum()) {
+                    case 1 -> 2 * apostaMoedas;
+                    case 0 -> apostaMoedas;
+                    default -> 0;
+                };
+        return moedasPagas;
+    }
+
+    /**
+     * Placar da aposta binaria: +1 acertou, -1 errou, 0 empatou (preco parado). Linhas antigas sem o placar binario
+     * usam {@code acertouDirecao}.
+     */
+    public int sinalAposta() {
+        if (resultadoBinarioBrl != null) {
+            return resultadoBinarioBrl.signum();
+        }
+        return Boolean.TRUE.equals(acertouDirecao) ? 1 : -1;
+    }
+
+    /** A aposta liquidada ganhou (pagou mais que a aposta). */
+    public boolean ganhouAposta() {
+        return moedasPagas != null && moedasPagas > apostaMoedas;
+    }
+
+    /**
+     * Referencia do pagamento na carteira quando a sessao ja encerrou: unica por operacao e diferente do id da
+     * sessao e das ordens, para a carteira (idempotente por ordemId) creditar uma vez so.
+     */
+    public UUID referenciaPagamento() {
+        return UUID.nameUUIDFromBytes(("flecha-mercado:" + id).getBytes(StandardCharsets.UTF_8));
     }
 
     public void contarTentativaFechar() {
@@ -264,6 +328,14 @@ public class OperacaoEstudo {
 
     public Boolean getAcertouDirecao() {
         return acertouDirecao;
+    }
+
+    public Integer getApostaMoedas() {
+        return apostaMoedas;
+    }
+
+    public Integer getMoedasPagas() {
+        return moedasPagas;
     }
 
     public int getTentativasFechar() {

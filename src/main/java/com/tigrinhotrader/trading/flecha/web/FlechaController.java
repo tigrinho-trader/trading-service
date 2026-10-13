@@ -16,7 +16,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Jogo Flecha Certeira. O usuario vem no cabecalho X-Usuario-Id (api-gateway); so /regras e publico. */
+/**
+ * Jogo Flecha Certeira. O usuario vem no cabecalho X-Usuario-Id (api-gateway); so /regras e publico. Flechas de
+ * mercado nao passam por /tiros: sao gastas pelo estudo ({@code POST /jogos/flecha/estudo/operacoes}).
+ */
 @RestController
 @RequestMapping("/jogos/flecha")
 public class FlechaController {
@@ -34,6 +37,12 @@ public class FlechaController {
     @GetMapping("/regras")
     public RegrasFlechaResponse regras() {
         return RegrasFlechaResponse.atuais();
+    }
+
+    /** Flechas guardadas de rodadas anteriores: as comuns por campo e as de mercado, que valem em todos. */
+    @GetMapping("/aljava")
+    public AljavaGuardadaResponse aljava(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId) {
+        return AljavaGuardadaResponse.de(service.guardadas(usuarioId));
     }
 
     @PostMapping("/sessoes")

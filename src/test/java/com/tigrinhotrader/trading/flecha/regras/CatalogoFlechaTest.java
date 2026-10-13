@@ -31,6 +31,20 @@ class CatalogoFlechaTest {
     }
 
     @Test
+    void flechaDeMercadoCustaCemMoedasEmTodoCampo() {
+        // a aposta binaria de R$ 10 do estudo, a 10 moedas = R$ 1
+        assertThat(RegrasFlecha.PRECO_FLECHA_MERCADO).isEqualTo(100);
+        assertThat(RegrasFlecha.PAGAMENTO_ACERTO_MERCADO).isEqualTo(200);
+        for (Campo c : Campo.values()) {
+            assertThat(c.custoFlecha(TipoFlecha.BTC)).isEqualByComparingTo("100");
+            assertThat(c.custoFlecha(TipoFlecha.ETH)).isEqualByComparingTo("100");
+            assertThat(c.custoFlecha(TipoFlecha.OURO)).isEqualByComparingTo("100");
+        }
+        assertThat(TipoFlecha.values()).filteredOn(TipoFlecha::deMercado)
+                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO);
+    }
+
+    @Test
     void arredondaMeioParaCimaComoOMathRound() {
         // big na Reserva Real vale 25: 25 x 2,5 = 62,5 -> 63; 25 x 5,5 = 137,5 -> 138
         assertThat(Campo.RESERVA_REAL.moedasAcerto(Passaro.BIG, TipoFlecha.IRON, 1)).isEqualTo(63);

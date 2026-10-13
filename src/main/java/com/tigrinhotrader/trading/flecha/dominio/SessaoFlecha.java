@@ -22,7 +22,9 @@ import java.util.UUID;
 
 /**
  * Uma partida do Flecha Certeira: o jogador paga entrada + flechas ao abrir (e ao comprar mais), cada tiro soma
- * moedas e, ao encerrar, o resultado (ganhos - custo) vai para a carteira pelo evento ordem.executada.
+ * moedas e, ao encerrar, o resultado (ganhos - custo) vai para a carteira pelo evento ordem.executada. As flechas
+ * guardadas de rodadas anteriores entram na aljava sem custo (ja foram pagas) e as que sobram voltam para a guarda.
+ * Flechas de mercado nao sao disparadas aqui: o estudo gasta a flecha e soma o pagamento da aposta aos ganhos.
  */
 @Entity
 @Table(name = "sessoes_flecha", indexes = {
@@ -115,6 +117,14 @@ public class SessaoFlecha {
 
     /** Abre a sessao cobrando entrada + flechas pedidas. */
     public SessaoFlecha(UUID id, String usuarioId, Campo campo, Aljava pedido, Instant agora) {
+        this(id, usuarioId, campo, pedido, Aljava.vazia(), agora);
+    }
+
+    /**
+     * Abre a sessao cobrando entrada + flechas pedidas; as {@code guardadas} (pagas em rodadas anteriores) entram na
+     * aljava sem custo e sem contar como compradas.
+     */
+    public SessaoFlecha(UUID id, String usuarioId, Campo campo, Aljava pedido, Aljava guardadas, Instant agora) {
         this.id = id;
         this.usuarioId = usuarioId;
         this.usuarioAberta = usuarioId;
@@ -124,6 +134,7 @@ public class SessaoFlecha {
         this.ganhos = dinheiro(BigDecimal.ZERO);
         this.compradas = pedido.copia();
         this.restantes = pedido.copia();
+        this.restantes.somarTudo(guardadas);
         this.disparadas = Aljava.vazia();
         this.acertos = 0;
         this.criadaEm = agora;
@@ -160,6 +171,30 @@ public class SessaoFlecha {
         return ganhosTiro;
     }
 
+    /**
+     * Gasta uma flecha de mercado na operacao do estudo (a aposta ja foi paga na compra da flecha).
+     *
+     * @throws IllegalStateException se a sessao esta encerrada, a flecha nao e de mercado ou acabou
+     */
+    public void usarFlechaDeMercado(TipoFlecha flecha, Instant agora) {
+        exigirAberta();
+        if (!flecha.deMercado() || restantes.get(flecha) <= 0) {
+            throw new IllegalStateException("Sem flecha de mercado " + flecha.id());
+        }
+        restantes.somar(flecha, -1);
+        disparadas.somar(flecha, 1);
+        ultimaAtividadeEm = agora;
+    }
+
+    /** Soma aos ganhos o pagamento da aposta de uma flecha de mercado; acertar a direcao conta como um acerto. */
+    public void receberApostaDeMercado(int moedas, boolean acertou) {
+        exigirAberta();
+        ganhos = dinheiro(ganhos.add(BigDecimal.valueOf(moedas)));
+        if (acertou) {
+            acertos++;
+        }
+    }
+
     /** Compra mais flechas durante a sessao: soma ao custo e as compradas/restantes. */
     public BigDecimal comprar(TipoFlecha flecha, int quantidade, Instant agora) {
         exigirAberta();
@@ -171,11 +206,17 @@ public class SessaoFlecha {
         return extra;
     }
 
-    public void encerrar(Instant agora) {
+    /**
+     * Encerra a sessao e tira da aljava as flechas que sobraram (o servico guarda para a proxima rodada).
+     *
+     * @return as flechas que sobraram
+     */
+    public Aljava encerrar(Instant agora) {
         exigirAberta();
         status = StatusSessao.ENCERRADA;
         encerradaEm = agora;
         usuarioAberta = null;
+        return restantes.esvaziar();
     }
 
     private void exigirAberta() {

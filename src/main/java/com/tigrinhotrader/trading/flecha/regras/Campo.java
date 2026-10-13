@@ -49,8 +49,14 @@ public enum Campo {
         return Arrays.stream(values()).filter(c -> c.slug.equals(slug)).findFirst();
     }
 
-    /** Custo de uma flecha neste campo = fatorPreco x preco base. */
+    /**
+     * Custo de uma flecha neste campo = fatorPreco x preco base; flecha de mercado tem preco fixo
+     * ({@link RegrasFlecha#PRECO_FLECHA_MERCADO}) em todo campo.
+     */
     public BigDecimal custoFlecha(TipoFlecha tipo) {
+        if (tipo.deMercado()) {
+            return BigDecimal.valueOf(RegrasFlecha.PRECO_FLECHA_MERCADO);
+        }
         return BigDecimal.valueOf((long) tipo.fatorPreco() * flechaBase);
     }
 

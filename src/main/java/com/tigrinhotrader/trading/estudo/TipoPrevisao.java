@@ -1,22 +1,10 @@
 package com.tigrinhotrader.trading.estudo;
 
-import java.util.Arrays;
-import java.util.Locale;
-import java.util.Optional;
-
 /**
- * Como o jogador previu (preferencia dele no perfil). BINARIA: so sobe ou desce; alem da operacao, o estudo conta
- * uma aposta binaria (+aposta no acerto, -aposta no erro). PREVISAO: mirou o preco exato daqui a 5 s.
+ * Como o jogador previu. BINARIA: so sobe ou desce; e a aposta de 100 moedas da flecha de mercado, liquidada pelo
+ * servidor (toda operacao nova e binaria). PREVISAO: mirou o preco exato daqui a 5 s (so operacoes antigas).
  */
 public enum TipoPrevisao {
     BINARIA,
-    PREVISAO;
-
-    public static Optional<TipoPrevisao> porNome(String nome) {
-        if (nome == null) {
-            return Optional.empty();
-        }
-        String procurado = nome.trim().toUpperCase(Locale.ROOT);
-        return Arrays.stream(values()).filter(t -> t.name().equals(procurado)).findFirst();
-    }
+    PREVISAO
 }

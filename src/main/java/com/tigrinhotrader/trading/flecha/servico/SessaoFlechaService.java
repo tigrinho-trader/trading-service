@@ -1,6 +1,8 @@
 package com.tigrinhotrader.trading.flecha.servico;
 
 import com.tigrinhotrader.trading.flecha.dominio.Aljava;
+import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardada;
+import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardadaRepository;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
 import com.tigrinhotrader.trading.flecha.dominio.StatusSessao;
@@ -37,7 +39,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Sessoes do Flecha Certeira: o servidor cobra entrada + flechas, confere cada tiro (plausibilidade) e manda o
- * resultado para a carteira ao encerrar.
+ * resultado para a carteira ao encerrar. As flechas que sobram ficam guardadas para a proxima rodada (as comuns no
+ * campo onde foram compradas, as de mercado em qualquer campo).
  */
 @Service
 public class SessaoFlechaService {
@@ -48,17 +51,24 @@ public class SessaoFlechaService {
     public record ResultadoTiro(int ganhosTiro, SessaoFlecha sessao) {
     }
 
+    /** Flechas guardadas do jogador: as comuns de cada campo e as de mercado, que valem em todos. */
+    public record Guardadas(Map<Campo, Aljava> porCampo, Aljava mercado) {
+    }
+
     private final SessaoFlechaRepository repositorio;
+    private final AljavaGuardadaRepository aljavas;
     private final SaldoDisponivel saldoDisponivel;
     private final OrdemExecutadaPublisher publisher;
     private final FlechaProperties propriedades;
     private final TransactionTemplate transacao;
     private final Clock relogio;
 
-    public SessaoFlechaService(SessaoFlechaRepository repositorio, SaldoDisponivel saldoDisponivel,
-                               OrdemExecutadaPublisher publisher, FlechaProperties propriedades,
-                               PlatformTransactionManager transactionManager, Clock relogio) {
+    public SessaoFlechaService(SessaoFlechaRepository repositorio, AljavaGuardadaRepository aljavas,
+                               SaldoDisponivel saldoDisponivel, OrdemExecutadaPublisher publisher,
+                               FlechaProperties propriedades, PlatformTransactionManager transactionManager,
+                               Clock relogio) {
         this.repositorio = repositorio;
+        this.aljavas = aljavas;
         this.saldoDisponivel = saldoDisponivel;
         this.publisher = publisher;
         this.propriedades = propriedades;
@@ -66,23 +76,56 @@ public class SessaoFlechaService {
         this.relogio = relogio;
     }
 
-    /** Abre uma sessao cobrando entrada + flechas, se o saldo disponivel cobrir. */
+    /**
+     * Abre uma sessao cobrando entrada + flechas novas ({@code flechas}), se o saldo disponivel cobrir. As flechas
+     * guardadas do campo e as de mercado entram na aljava sem custo; da para abrir sem comprar nada se houver ao
+     * menos uma guardada. A aljava comporta {@link RegrasFlecha#MAX_FLECHAS}: com mais guardadas que isso a sessao
+     * abre, mas sem comprar.
+     */
     @Transactional
     public SessaoFlecha criar(String usuarioId, String slugCampo, Map<String, Integer> flechas) {
         Campo campo = Campo.porSlug(slugCampo)
                 .orElseThrow(() -> new RegraNegocioException("Campo desconhecido: " + slugCampo));
         Aljava pedido = pedido(flechas);
+        if (pedido.total() > RegrasFlecha.MAX_FLECHAS) {
+            throw escolhaDeFlechas();
+        }
         if (repositorio.findFirstByUsuarioIdAndStatus(usuarioId, StatusSessao.ABERTA).isPresent()) {
             throw jaTemAberta();
         }
+        Optional<AljavaGuardada> doCampo = aljavas.findByUsuarioIdAndEscopo(usuarioId, campo.slug());
+        Optional<AljavaGuardada> deMercado = aljavas.findByUsuarioIdAndEscopo(usuarioId, AljavaGuardada.MERCADO);
+        int quantasGuardadas = doCampo.map(g -> g.getFlechas().comuns().total()).orElse(0)
+                + deMercado.map(g -> g.getFlechas().deMercado().total()).orElse(0);
+        if (pedido.total() + quantasGuardadas < 1) {
+            throw escolhaDeFlechas();
+        }
+        if (pedido.total() > 0 && pedido.total() + quantasGuardadas > RegrasFlecha.MAX_FLECHAS) {
+            throw new RegraNegocioException("A aljava comporta no maximo " + RegrasFlecha.MAX_FLECHAS
+                    + " flechas e voce ja tem " + quantasGuardadas + " guardadas");
+        }
         saldoDisponivel.exigir(usuarioId, SessaoFlecha.custoAbertura(campo, pedido));
-        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), usuarioId, campo, pedido, relogio.instant());
+        Instant agora = relogio.instant();
+        Aljava trazidas = Aljava.soma(
+                doCampo.map(g -> retirar(g, agora).comuns()).orElseGet(Aljava::vazia),
+                deMercado.map(g -> retirar(g, agora).deMercado()).orElseGet(Aljava::vazia));
+        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), usuarioId, campo, pedido, trazidas, agora);
         try {
             return repositorio.saveAndFlush(sessao);
         } catch (DataIntegrityViolationException e) {
             // outro pedido simultaneo abriu a sessao primeiro (UNIQUE em usuarioAberta)
             throw jaTemAberta();
         }
+    }
+
+    private Aljava retirar(AljavaGuardada guardada, Instant agora) {
+        Aljava retiradas = guardada.retirar(agora);
+        aljavas.save(guardada);
+        return retiradas;
+    }
+
+    private static RegraNegocioException escolhaDeFlechas() {
+        return new RegraNegocioException("Escolha de 1 a " + RegrasFlecha.MAX_FLECHAS + " flechas");
     }
 
     private static ConflitoException jaTemAberta() {
@@ -98,11 +141,7 @@ public class SessaoFlechaService {
             }
             quantidades.put(tipo, quantidade);
         });
-        Aljava pedido = Aljava.de(quantidades);
-        if (pedido.total() < 1 || pedido.total() > RegrasFlecha.MAX_FLECHAS) {
-            throw new RegraNegocioException("Escolha de 1 a " + RegrasFlecha.MAX_FLECHAS + " flechas");
-        }
-        return pedido;
+        return Aljava.de(quantidades);
     }
 
     private static TipoFlecha tipoFlecha(String id) {
@@ -114,6 +153,25 @@ public class SessaoFlechaService {
         return repositorio.findFirstByUsuarioIdAndStatus(usuarioId, StatusSessao.ABERTA);
     }
 
+    /** Flechas guardadas do jogador (fora da sessao aberta), com todos os campos. */
+    @Transactional(readOnly = true)
+    public Guardadas guardadas(String usuarioId) {
+        Map<Campo, Aljava> porCampo = new EnumMap<>(Campo.class);
+        for (Campo campo : Campo.values()) {
+            porCampo.put(campo, Aljava.vazia());
+        }
+        Aljava mercado = Aljava.vazia();
+        for (AljavaGuardada guardada : aljavas.findByUsuarioId(usuarioId)) {
+            if (AljavaGuardada.MERCADO.equals(guardada.getEscopo())) {
+                mercado = Aljava.soma(mercado, guardada.getFlechas().deMercado());
+            } else {
+                Campo.porSlug(guardada.getEscopo())
+                        .ifPresent(campo -> porCampo.merge(campo, guardada.getFlechas().comuns(), Aljava::soma));
+            }
+        }
+        return new Guardadas(porCampo, mercado);
+    }
+
     /**
      * Registra um tiro: o cliente diz quais passaros a flecha atravessou (na ordem). O servidor so confere a
      * plausibilidade: tem a flecha, combo ate 5, passaros que existem no campo e ritmo minimo entre tiros.
@@ -122,6 +180,9 @@ public class SessaoFlechaService {
     public ResultadoTiro disparar(String usuarioId, UUID id, String flecha, List<String> acertos) {
         SessaoFlecha sessao = buscarAberta(usuarioId, id);
         TipoFlecha tipo = tipoFlecha(flecha);
+        if (tipo.deMercado()) {
+            throw new RegraNegocioException("Flechas de mercado sao registradas pelo estudo");
+        }
         if (sessao.getRestantes().get(tipo) <= 0) {
             throw new RegraNegocioException("Sem flechas de " + tipo.nome() + " na aljava");
         }
@@ -136,10 +197,6 @@ public class SessaoFlechaService {
                     .orElseThrow(() -> new RegraNegocioException("Passaro desconhecido: " + idPassaro));
             if (!campo.temNoPool(passaro)) {
                 throw new RegraNegocioException("Passaro " + idPassaro + " nao aparece no " + campo.nome());
-            }
-            if (!tipo.acerta(passaro)) {
-                throw new RegraNegocioException("A flecha " + tipo.nome() + " so acerta o passaro "
-                        + tipo.passaroAlvo().map(Passaro::id).orElseThrow());
             }
             atingidos.add(passaro);
         }
@@ -214,11 +271,13 @@ public class SessaoFlechaService {
     }
 
     /**
-     * Grava (com flush, para um conflito de versao aparecer antes de avisar a carteira) e publica o resultado.
-     * Se a fila falhar, a transacao volta e a sessao continua ABERTA.
+     * Guarda as flechas que sobraram, grava (com flush, para um conflito de versao aparecer antes de avisar a
+     * carteira) e publica o resultado. Se a fila falhar, a transacao volta e a sessao continua ABERTA, com as flechas.
      */
     private SessaoFlecha fechar(SessaoFlecha sessao, Instant agora) {
-        sessao.encerrar(agora);
+        Aljava sobra = sessao.encerrar(agora);
+        guardar(sessao.getUsuarioId(), sessao.getCampo().slug(), sobra.comuns(), agora);
+        guardar(sessao.getUsuarioId(), AljavaGuardada.MERCADO, sobra.deMercado(), agora);
         SessaoFlecha salva = repositorio.saveAndFlush(sessao);
         try {
             publisher.publicarSessaoFlecha(evento(salva));
@@ -226,6 +285,16 @@ public class SessaoFlechaService {
             throw new ServicoIndisponivelException("Fila indisponivel, tente encerrar de novo: " + e.getMessage());
         }
         return salva;
+    }
+
+    private void guardar(String usuarioId, String escopo, Aljava flechas, Instant agora) {
+        if (flechas.total() == 0) {
+            return;
+        }
+        AljavaGuardada guardada = aljavas.findByUsuarioIdAndEscopo(usuarioId, escopo)
+                .orElseGet(() -> new AljavaGuardada(usuarioId, escopo, agora));
+        guardada.guardar(flechas, agora);
+        aljavas.save(guardada);
     }
 
     static SessaoFlechaEncerradaEvento evento(SessaoFlecha s) {

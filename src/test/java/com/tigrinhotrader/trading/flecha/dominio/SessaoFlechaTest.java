@@ -128,9 +128,105 @@ class SessaoFlechaTest {
         assertThat(copia.copia().get(TipoFlecha.BTC)).isEqualTo(4);
         assertThat(copia.copia().get(TipoFlecha.ETH)).isEqualTo(3);
         assertThat(copia.copia().get(TipoFlecha.OURO)).isEqualTo(1);
-        // reserva real: flecha base 20, flechas de mercado custam 1x
+        // reserva real: flecha base 20, flechas de mercado custam 100 em qualquer campo
         assertThat(copia.custo(Campo.RESERVA_REAL))
-                .isEqualByComparingTo(String.valueOf(2 * 20 + 2 * 80 + 4 * 20 + 3 * 20 + 20));
+                .isEqualByComparingTo(String.valueOf(2 * 20 + 2 * 80 + 4 * 100 + 3 * 100 + 100));
+        assertThat(copia.custo(Campo.VILAREJO)).isEqualByComparingTo(String.valueOf(2 + 2 * 4 + 8 * 100));
         assertThat(Aljava.vazia().custo(Campo.RESERVA_REAL)).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void aljavaSeparaComunsDeMercadoESoma() {
+        Aljava a = Aljava.de(Map.of(TipoFlecha.WOOD, 2, TipoFlecha.DIAMOND, 1, TipoFlecha.BTC, 3, TipoFlecha.OURO, 1));
+
+        assertThat(a.comuns().comoMapa()).containsExactly(Map.entry("wood", 2), Map.entry("iron", 0),
+                Map.entry("gold", 0), Map.entry("diamond", 1), Map.entry("btc", 0), Map.entry("eth", 0),
+                Map.entry("ouro", 0));
+        assertThat(a.deMercado().total()).isEqualTo(4);
+        assertThat(a.deMercado().get(TipoFlecha.WOOD)).isZero();
+        assertThat(Aljava.soma(a, Aljava.de(Map.of(TipoFlecha.WOOD, 1))).get(TipoFlecha.WOOD)).isEqualTo(3);
+        assertThat(a.get(TipoFlecha.WOOD)).isEqualTo(2);
+
+        Aljava havia = a.esvaziar();
+        assertThat(havia.total()).isEqualTo(7);
+        assertThat(a.total()).isZero();
+    }
+
+    @Test
+    void guardadasEntramNaAljavaSemCustoNemContarComoCompradas() {
+        Aljava guardadas = Aljava.de(Map.of(TipoFlecha.IRON, 3, TipoFlecha.ETH, 2));
+        SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.BOSQUE, Aljava.de(Map.of(TipoFlecha.WOOD, 1)),
+                guardadas, agora);
+
+        // so entrada 15 + 1 madeira de 3
+        assertThat(s.getCusto()).isEqualByComparingTo("18");
+        assertThat(s.getCompradas().total()).isEqualTo(1);
+        assertThat(s.getRestantes().get(TipoFlecha.IRON)).isEqualTo(3);
+        assertThat(s.getRestantes().get(TipoFlecha.ETH)).isEqualTo(2);
+        assertThat(s.getRestantes().total()).isEqualTo(6);
+
+        // sem comprar nada: so a entrada
+        SessaoFlecha soGuardadas = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO, Aljava.vazia(), guardadas,
+                agora);
+        assertThat(soGuardadas.getCusto()).isEqualByComparingTo("40");
+    }
+
+    @Test
+    void flechaDeMercadoEGastaPeloEstudoEAApostaSomaAosGanhos() {
+        SessaoFlecha s = sessao(Campo.VILAREJO, Map.of(TipoFlecha.BTC, 1, TipoFlecha.WOOD, 1));
+        // 5 + 1 + 100
+        assertThat(s.getCusto()).isEqualByComparingTo("106");
+
+        s.usarFlechaDeMercado(TipoFlecha.BTC, agora.plusSeconds(3));
+
+        assertThat(s.getRestantes().get(TipoFlecha.BTC)).isZero();
+        assertThat(s.getDisparadas().get(TipoFlecha.BTC)).isEqualTo(1);
+        assertThat(s.getUltimaAtividadeEm()).isEqualTo(agora.plusSeconds(3));
+        assertThatThrownBy(() -> s.usarFlechaDeMercado(TipoFlecha.BTC, agora))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> s.usarFlechaDeMercado(TipoFlecha.WOOD, agora))
+                .isInstanceOf(IllegalStateException.class);
+
+        s.receberApostaDeMercado(200, true);
+        s.receberApostaDeMercado(100, false);
+        s.receberApostaDeMercado(0, false);
+        assertThat(s.getGanhos()).isEqualByComparingTo("300");
+        assertThat(s.getAcertos()).isEqualTo(1);
+
+        s.encerrar(agora);
+        assertThatThrownBy(() -> s.receberApostaDeMercado(100, false)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> s.usarFlechaDeMercado(TipoFlecha.BTC, agora))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void encerrarTiraAsFlechasQueSobraram() {
+        SessaoFlecha s = sessao(Campo.VILAREJO, Map.of(TipoFlecha.WOOD, 3, TipoFlecha.ETH, 2));
+        s.registrarTiro(TipoFlecha.WOOD, List.of(), agora);
+
+        Aljava sobra = s.encerrar(agora.plusSeconds(1));
+
+        assertThat(sobra.get(TipoFlecha.WOOD)).isEqualTo(2);
+        assertThat(sobra.get(TipoFlecha.ETH)).isEqualTo(2);
+        assertThat(s.getRestantes().total()).isZero();
+        assertThat(s.getCompradas().total()).isEqualTo(5);
+        assertThat(s.getDisparadas().total()).isEqualTo(1);
+    }
+
+    @Test
+    void aljavaGuardadaGuardaERetira() {
+        AljavaGuardada g = new AljavaGuardada("u1", "bosque", agora);
+        assertThat(g.getUsuarioId()).isEqualTo("u1");
+        assertThat(g.getEscopo()).isEqualTo("bosque");
+        assertThat(g.getFlechas().total()).isZero();
+
+        g.guardar(Aljava.de(Map.of(TipoFlecha.GOLD, 2)), agora);
+        g.guardar(Aljava.de(Map.of(TipoFlecha.GOLD, 1, TipoFlecha.IRON, 1)), agora);
+        assertThat(g.getFlechas().get(TipoFlecha.GOLD)).isEqualTo(3);
+
+        Aljava retiradas = g.retirar(agora);
+        assertThat(retiradas.total()).isEqualTo(4);
+        assertThat(g.getFlechas().total()).isZero();
+        assertThat(AljavaGuardada.MERCADO).isEqualTo("mercado");
     }
 }

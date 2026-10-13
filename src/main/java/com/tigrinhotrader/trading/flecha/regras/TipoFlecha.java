@@ -6,14 +6,18 @@ import java.util.Optional;
 
 /**
  * Tipos de flecha: custam {@code fatorPreco} vezes o preco base do campo e multiplicam as moedas do passaro por
- * {@code fatorMoedas}. Espelha ARROW_TYPES do frontend.
+ * {@code fatorMoedas}; as de mercado tem preco fixo ({@link RegrasFlecha#PRECO_FLECHA_MERCADO}). Espelha ARROW_TYPES
+ * do frontend.
  */
 public enum TipoFlecha {
     WOOD("wood", "Madeira", 1, new BigDecimal("1")),
     IRON("iron", "Ferro", 2, new BigDecimal("2.5")),
     GOLD("gold", "Ouro", 4, new BigDecimal("5.5")),
     DIAMOND("diamond", "Diamante", 8, new BigDecimal("12")),
-    /** Especial: leva 5 s ate o ponto mirado e so acerta o passaro bitcoin, com o dobro das moedas. */
+    /**
+     * Flecha de mercado: custa {@link RegrasFlecha#PRECO_FLECHA_MERCADO} em qualquer campo e e uma aposta binaria
+     * (sobe ou desce em 5 s) registrada pelo estudo, nao pelos tiros. So voa ate o passaro bitcoin.
+     */
     BTC("btc", "Bitcoin", 1, new BigDecimal("2")),
     /** Especial como a bitcoin, mas so acerta o passaro ethereum. */
     ETH("eth", "Ethereum", 1, new BigDecimal("2")),
@@ -35,6 +39,11 @@ public enum TipoFlecha {
     /** Esta flecha pode acertar este passaro? (cada flecha de mercado so acerta o passaro do seu ativo) */
     public boolean acerta(Passaro passaro) {
         return passaroAlvo().map(alvo -> alvo == passaro).orElse(true);
+    }
+
+    /** Flecha de mercado (bitcoin, ethereum, ouro): preco fixo, guardada em qualquer campo e usada pelo estudo. */
+    public boolean deMercado() {
+        return passaroAlvo().isPresent();
     }
 
     /** O unico passaro que esta flecha acerta (flechas de mercado), ou vazio se ela acerta qualquer um. */

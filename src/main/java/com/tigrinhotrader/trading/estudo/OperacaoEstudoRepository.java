@@ -14,12 +14,14 @@ public interface OperacaoEstudoRepository extends JpaRepository<OperacaoEstudo, 
 
     Optional<OperacaoEstudo> findByIdAndUsuarioId(UUID id, String usuarioId);
 
-    /** Operacoes da sessao num ativo; as antigas, sem simbolo, contam como BTCUSDT. */
-    @Query("select count(o) from OperacaoEstudo o where o.sessaoId = :sessaoId "
-            + "and coalesce(o.simbolo, 'BTCUSDT') = :simbolo")
-    long contarDaSessaoNoAtivo(@Param("sessaoId") UUID sessaoId, @Param("simbolo") String simbolo);
+    /** Operacoes terminadas com a aposta da flecha de mercado ainda nao liquidada (a revisao liquida). */
+    List<OperacaoEstudo> findByApostaMoedasIsNotNullAndMoedasPagasIsNullAndStatusIn(Collection<StatusOperacao> status);
 
     Optional<OperacaoEstudo> findFirstByUsuarioIdOrderByCriadaEmDesc(String usuarioId);
+
+    List<OperacaoEstudo> findByUsuarioIdAndStatus(String usuarioId, StatusOperacao status);
+
+    List<OperacaoEstudo> findByUsuarioIdAndSessaoIdAndStatus(String usuarioId, UUID sessaoId, StatusOperacao status);
 
     long countByModoAndStatusNotAndCriadaEmGreaterThanEqual(ModoEstudo modo, StatusOperacao status, Instant desde);
 

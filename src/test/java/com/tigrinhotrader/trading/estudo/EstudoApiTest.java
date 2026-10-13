@@ -1,7 +1,11 @@
 package com.tigrinhotrader.trading.estudo;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -11,7 +15,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tigrinhotrader.trading.cliente.MarketDataClient;
 import com.tigrinhotrader.trading.cliente.WalletClient;
+import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
+import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService;
+import com.tigrinhotrader.trading.mensageria.SessaoFlechaEncerradaEvento;
 import com.tigrinhotrader.trading.mensageria.PrecoAtualizadoEvento;
 import com.tigrinhotrader.trading.preco.PrecoCache;
 import com.tigrinhotrader.trading.servico.RegraNegocioException;
@@ -30,6 +37,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -41,6 +49,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /** O estudo pela API: Spring + JPA (H2 proprio), corretora falsa e agendador controlado pelo teste. */
 @SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:estudo;DB_CLOSE_DELAY=-1")
@@ -155,6 +164,8 @@ class EstudoApiTest {
     private PrecoCache precos;
     @Autowired
     private OperacaoEstudoRepository operacoes;
+    @Autowired
+    private OperacaoEstudoService estudo;
 
     @MockBean
     private RabbitTemplate rabbitTemplate;
@@ -167,7 +178,8 @@ class EstudoApiTest {
 
     @BeforeEach
     void preparar() {
-        when(walletClient.saldo(anyString())).thenReturn(new BigDecimal("1000.00"));
+        // flechas de mercado custam 100 moedas cada
+        when(walletClient.saldo(anyString())).thenReturn(new BigDecimal("100000.00"));
         corretora.modo = ModoEstudo.SIMULADO;
         corretora.aberturas.clear();
         corretora.fechamentos.clear();
@@ -209,6 +221,10 @@ class EstudoApiTest {
         return mockMvc.perform(get("/jogos/flecha/estudo/operacoes/" + id).header("X-Usuario-Id", jogador));
     }
 
+    private SessaoFlecha sessaoAtual(String jogador) {
+        return sessoes.atual(jogador).orElseThrow();
+    }
+
     @Test
     void flechaBitcoinAbreNaHoraFechaEm5sEOJogadorVeOResultado() throws Exception {
         precos.atualizar(new PrecoAtualizadoEvento("USDTBRL", new BigDecimal("5.00"), null, relogio.instant()));
@@ -224,13 +240,22 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.tipo").value("BINARIA"))
                 .andExpect(jsonPath("$.modo").value("SIMULADO"))
                 .andExpect(jsonPath("$.nocionalBrl").value(30))
-                .andExpect(jsonPath("$.precoPrevistoJogo").value(80010)));
+                .andExpect(jsonPath("$.precoPrevistoJogo").value(80010))
+                .andExpect(jsonPath("$.moedasPagas").isEmpty())
+                // a flecha saiu da aljava da sessao, na mesma transacao
+                .andExpect(jsonPath("$.sessao.id").value(sessao.toString()))
+                .andExpect(jsonPath("$.sessao.status").value("ABERTA"))
+                .andExpect(jsonPath("$.sessao.flechas.btc").value(1))
+                .andExpect(jsonPath("$.sessao.disparadas.btc").value(1))
+                .andExpect(jsonPath("$.sessao.compradas.btc").value(2))
+                .andExpect(jsonPath("$.sessao.ganhos").value(0.0)));
 
         // R$ 30 a R$ 5,00 por USDT = US$ 6
         assertThat(corretora.nocionais).singleElement().satisfies(n -> assertThat(n).isEqualByComparingTo("6"));
         assertThat(corretora.ids.get(0)).startsWith("est").endsWith("a").hasSizeLessThanOrEqualTo(36);
         consultar(jogador, id).andExpect(jsonPath("$.status").value("ABERTA"))
-                .andExpect(jsonPath("$.precoEntrada").value(80000));
+                .andExpect(jsonPath("$.precoEntrada").value(80000))
+                .andExpect(jsonPath("$.moedasPagas").isEmpty());
 
         agendador.rodarAgendadas();   // 5 s depois
 
@@ -242,7 +267,16 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.taxasBrl").value(0.1))
                 .andExpect(jsonPath("$.resultadoLiquidoBrl").value(0.1))   // (8,03 - 8,01) x 5
                 .andExpect(jsonPath("$.resultadoBinarioBrl").value(10))    // aposta binaria de R$ 10: acertou
-                .andExpect(jsonPath("$.fechadaEm").exists());
+                .andExpect(jsonPath("$.fechadaEm").exists())
+                // acertou: a aposta de 100 volta com mais 100, nos ganhos da sessao aberta
+                .andExpect(jsonPath("$.moedasPagas").value(200))
+                .andExpect(jsonPath("$.sessao.ganhos").value(200.0))
+                .andExpect(jsonPath("$.sessao.acertos").value(1));
+
+        // liquidar de novo nao paga outra vez
+        estudo.liquidar(id);
+        assertThat(sessaoAtual(jogador).getGanhos()).isEqualByComparingTo("200");
+        assertThat(operacoes.findById(id)).get().extracting(OperacaoEstudo::getMoedasPagas).isEqualTo(200);
 
         // outra pessoa nao ve a operacao; sem usuario e 401
         consultar(novoJogador(), id).andExpect(status().isNotFound());
@@ -284,7 +318,9 @@ class EstudoApiTest {
         UUID eth = idDe(registrarNoAtivo(jogador, sessao, " ethusdt ", "ALTA")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.simbolo").value("ETHUSDT"))
-                .andExpect(jsonPath("$.modo").value("SIMULADO")));
+                .andExpect(jsonPath("$.modo").value("SIMULADO"))
+                .andExpect(jsonPath("$.sessao.flechas.eth").value(0))
+                .andExpect(jsonPath("$.sessao.flechas.ouro").value(1)));
         consultar(jogador, eth).andExpect(jsonPath("$.status").value("ABERTA"))
                 .andExpect(jsonPath("$.precoEntrada").value(2500));
         relogio.avancar(Duration.ofSeconds(2));
@@ -302,10 +338,14 @@ class EstudoApiTest {
         consultar(jogador, eth).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.precoSaida").value(2510))
                 .andExpect(jsonPath("$.acertouDirecao").value(true))
-                .andExpect(jsonPath("$.resultadoBinarioBrl").value(10));
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(10))
+                .andExpect(jsonPath("$.moedasPagas").value(200));
         consultar(jogador, ouro).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.acertouDirecao").value(false))
-                .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10));
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10))
+                .andExpect(jsonPath("$.moedasPagas").value(0))
+                .andExpect(jsonPath("$.sessao.ganhos").value(200.0))
+                .andExpect(jsonPath("$.sessao.acertos").value(1));
         // a corretora configurada (REAL) nem foi chamada
         assertThat(corretora.ids).isEmpty();
         assertThat(operacoes.findById(eth)).get().extracting(OperacaoEstudo::getModo).isEqualTo(ModoEstudo.SIMULADO);
@@ -322,7 +362,7 @@ class EstudoApiTest {
     }
 
     @Test
-    void cadaFlechaDeMercadoValeUmaOperacaoNoProprioAtivo() throws Exception {
+    void cadaOperacaoGastaUmaFlechaDoProprioAtivo() throws Exception {
         precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
         String jogador = novoJogador();
         UUID sessao = sessaoDeMercado(jogador);
@@ -333,52 +373,63 @@ class EstudoApiTest {
         registrarNoAtivo(jogador, sessao, "ETHUSDT", "ALTA").andExpect(status().isCreated());
         relogio.avancar(Duration.ofSeconds(2));
         registrarNoAtivo(jogador, sessao, "ETHUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Cada flecha Ethereum comprada vale uma operacao"));
-        // a operacao de ETH nao gasta a vaga do bitcoin (sem simbolo = BTCUSDT)
+                .andExpect(jsonPath("$.detail").value("Sem flechas Ethereum na aljava"));
+        // a operacao de ETH nao gasta a flecha do bitcoin (sem simbolo = BTCUSDT)
         corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
         registrar(jogador, sessao, "QUEDA").andExpect(status().isCreated())
-                .andExpect(jsonPath("$.simbolo").value("BTCUSDT"));
+                .andExpect(jsonPath("$.simbolo").value("BTCUSDT"))
+                .andExpect(jsonPath("$.sessao.flechas.btc").value(0))
+                .andExpect(jsonPath("$.sessao.flechas.eth").value(0))
+                .andExpect(jsonPath("$.sessao.flechas.ouro").value(1))
+                .andExpect(jsonPath("$.sessao.flechas.wood").value(1));
         relogio.avancar(Duration.ofSeconds(2));
         registrar(jogador, sessao, "QUEDA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Cada flecha Bitcoin comprada vale uma operacao"));
+                .andExpect(jsonPath("$.detail").value("Sem flechas Bitcoin na aljava"));
+        assertThat(sessaoAtual(jogador).getRestantes().get(TipoFlecha.OURO)).isEqualTo(1);
 
         // sessao sem flecha de ouro PAXG
         String outro = novoJogador();
         UUID semOuro = sessao(outro, 1);
         registrarNoAtivo(outro, semOuro, "PAXGUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Cada flecha Ouro PAXG comprada vale uma operacao"));
+                .andExpect(jsonPath("$.detail").value("Sem flechas Ouro PAXG na aljava"));
     }
 
     @Test
     void validacoesDaPrevisao() throws Exception {
         String jogador = novoJogador();
-        UUID sessao = sessao(jogador, 1);
+        UUID sessao = sessao(jogador, 2);
 
-        registrar(jogador, sessao, "lateral").andExpect(status().isUnprocessableEntity());
-        registrar(jogador, sessao, "ALTA", "roleta").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Tipo deve ser BINARIA ou PREVISAO"));
+        registrar(jogador, sessao, "lateral").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Direcao deve ser ALTA ou QUEDA"));
         registrar(novoJogador(), sessao, "ALTA").andExpect(status().isNotFound());
         registrar(jogador, UUID.randomUUID(), "ALTA").andExpect(status().isNotFound());
         mockMvc.perform(post("/jogos/flecha/estudo/operacoes").header("X-Usuario-Id", jogador)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"direcao\":\"ALTA\"}"))
                 .andExpect(status().isBadRequest());
+        // nada disso gastou flecha
+        assertThat(sessaoAtual(jogador).getRestantes().get(TipoFlecha.BTC)).isEqualTo(2);
 
         corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
-        // cliente antigo, sem o tipo: conta como previsao de preco
+        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        // cliente antigo, sem o tipo, ou com qualquer tipo: a aposta e sempre binaria
         mockMvc.perform(post("/jogos/flecha/estudo/operacoes").header("X-Usuario-Id", jogador)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("sessaoId", sessao, "direcao", "QUEDA"))))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.tipo").value("PREVISAO"));
-        // so comprou 1 flecha bitcoin
+                .andExpect(jsonPath("$.tipo").value("BINARIA"));
+        relogio.avancar(Duration.ofSeconds(2));
+        registrar(jogador, sessao, "ALTA", "PREVISAO").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tipo").value("BINARIA"));
+        // so comprou 2 flechas bitcoin
         relogio.avancar(Duration.ofSeconds(2));
         registrar(jogador, sessao, "QUEDA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Cada flecha Bitcoin comprada vale uma operacao"));
+                .andExpect(jsonPath("$.detail").value("Sem flechas Bitcoin na aljava"));
 
         // sem flecha bitcoin na sessao
         String outro = novoJogador();
         UUID semBitcoin = sessoes.criar(outro, "vilarejo", Map.of("wood", 2)).getId();
-        registrar(outro, semBitcoin, "ALTA").andExpect(status().isUnprocessableEntity());
+        registrar(outro, semBitcoin, "ALTA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Sem flechas Bitcoin na aljava"));
 
         // sessao encerrada
         String terceiro = novoJogador();
@@ -397,12 +448,15 @@ class EstudoApiTest {
 
         registrar(jogador, sessao, "ALTA").andExpect(status().isCreated());
         registrar(jogador, sessao, "ALTA").andExpect(status().isTooManyRequests());
+        // a recusada por ritmo nao gastou a flecha
+        assertThat(sessaoAtual(jogador).getRestantes().get(TipoFlecha.BTC)).isEqualTo(2);
         relogio.avancar(Duration.ofMillis(1001));
-        registrar(jogador, sessao, "ALTA").andExpect(status().isCreated());
+        registrar(jogador, sessao, "ALTA").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sessao.flechas.btc").value(1));
     }
 
     @Test
-    void naoAbrirOuFicarAbaixoDoMinimoAparecemParaOJogador() throws Exception {
+    void naoAbrirOuFicarAbaixoDoMinimoDevolveAAposta() throws Exception {
         String jogador = novoJogador();
         UUID sessao = sessao(jogador, 3);
         corretora.aberturas.add(() -> {
@@ -414,12 +468,17 @@ class EstudoApiTest {
 
         UUID recusada = idDe(registrar(jogador, sessao, "ALTA"));
         consultar(jogador, recusada).andExpect(jsonPath("$.status").value("RECUSADA"))
-                .andExpect(jsonPath("$.motivo").value("Operacao de US$ 5,45 abaixo do minimo da Binance (US$ 10)"));
+                .andExpect(jsonPath("$.motivo").value("Operacao de US$ 5,45 abaixo do minimo da Binance (US$ 10)"))
+                .andExpect(jsonPath("$.moedasPagas").value(100))
+                .andExpect(jsonPath("$.sessao.ganhos").value(100.0));
 
         relogio.avancar(Duration.ofSeconds(2));
         UUID falhou = idDe(registrar(jogador, sessao, "ALTA"));
         consultar(jogador, falhou).andExpect(jsonPath("$.status").value("FALHOU"))
-                .andExpect(jsonPath("$.motivo").value("Nao abriu: Binance fora do ar"));
+                .andExpect(jsonPath("$.motivo").value("Nao abriu: Binance fora do ar"))
+                .andExpect(jsonPath("$.moedasPagas").value(100))
+                .andExpect(jsonPath("$.sessao.ganhos").value(200.0))
+                .andExpect(jsonPath("$.sessao.acertos").value(0));
         assertThat(agendador.agendadas).isEmpty();
     }
 
@@ -440,7 +499,8 @@ class EstudoApiTest {
         agendador.rodarAgendadas();   // 2a fecha
         consultar(jogador, id).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.acertouDirecao").value(false))
-                .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10));
+                .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10))
+                .andExpect(jsonPath("$.moedasPagas").value(0));
         assertThat(corretora.ids).anyMatch(i -> i.endsWith("f1"));
 
         // outra operacao que nunca fecha
@@ -456,7 +516,9 @@ class EstudoApiTest {
             agendador.rodarAgendadas();
         }
         consultar(jogador, presa).andExpect(jsonPath("$.status").value("FALHOU"))
-                .andExpect(jsonPath("$.motivo").value("Nao fechou: Binance fora do ar"));
+                .andExpect(jsonPath("$.motivo").value("Nao fechou: Binance fora do ar"))
+                .andExpect(jsonPath("$.moedasPagas").value(100))
+                .andExpect(jsonPath("$.sessao.ganhos").value(100.0));
         assertThat(agendador.agendadas).isEmpty();
         // agendamento atrasado de uma operacao ja terminada nao faz nada
         assertThat(operacoes.findById(presa)).get().extracting(OperacaoEstudo::getTentativasFechar)
@@ -481,7 +543,10 @@ class EstudoApiTest {
         UUID recusada = idDe(registrar(jogador, sessao, "ALTA").andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("RECUSADA"))
                 .andExpect(jsonPath("$.modo").value("REAL"))
-                .andExpect(jsonPath("$.motivo").value("Muitas operacoes abertas ao mesmo tempo")));
+                .andExpect(jsonPath("$.motivo").value("Muitas operacoes abertas ao mesmo tempo"))
+                // recusada na hora: a aposta ja volta na resposta
+                .andExpect(jsonPath("$.moedasPagas").value(100))
+                .andExpect(jsonPath("$.sessao.ganhos").value(100.0)));
         assertThat(operacoes.findById(recusada)).get().extracting(OperacaoEstudo::getStatus)
                 .isEqualTo(StatusOperacao.RECUSADA);
 
@@ -493,11 +558,160 @@ class EstudoApiTest {
         }
         relogio.avancar(Duration.ofSeconds(2));
         registrar(jogador, sessao, "ALTA").andExpect(jsonPath("$.status").value("RECUSADA"))
-                .andExpect(jsonPath("$.motivo").value("Perda maxima do dia atingida"));
+                .andExpect(jsonPath("$.motivo").value("Perda maxima do dia atingida"))
+                .andExpect(jsonPath("$.moedasPagas").value(100));
 
         mockMvc.perform(get("/jogos/flecha/estudo/resumo"))
                 .andExpect(jsonPath("$.modoAtual").value("REAL"))
                 .andExpect(jsonPath("$.real.acertos").value(0))
                 .andExpect(jsonPath("$.real.taxaAcertoPercentual").value(0.0));
+    }
+
+    /** Eventos ordem.executada de pagamento de flecha de mercado publicados ate agora. */
+    private List<SessaoFlechaEncerradaEvento> pagamentosPublicados() {
+        ArgumentCaptor<Object> eventos = ArgumentCaptor.forClass(Object.class);
+        verify(rabbitTemplate, atLeastOnce()).convertAndSend(anyString(), eq("ordem.executada"), eventos.capture());
+        return eventos.getAllValues().stream()
+                .filter(SessaoFlechaEncerradaEvento.class::isInstance)
+                .map(SessaoFlechaEncerradaEvento.class::cast)
+                .filter(e -> SessaoFlechaEncerradaEvento.TIPO_FLECHA_MERCADO.equals(e.tipo()))
+                .toList();
+    }
+
+    @Test
+    void apostaLiquidadaDepoisDeEncerrarVaiDiretoParaACarteiraUmaVezSo() throws Exception {
+        String jogador = novoJogador();
+        UUID sessao = sessao(jogador, 3);
+        // acerta, empata (preco parado) e erra
+        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        corretora.fechamentos.add(() -> exec("80400", "8", "-0.0001"));
+        corretora.fechamentos.add(() -> exec("80000", "8", "-0.0001"));
+        corretora.fechamentos.add(() -> exec("79000", "7.9", "-0.0001"));
+        UUID ganhou = idDe(registrar(jogador, sessao, "ALTA"));
+        relogio.avancar(Duration.ofSeconds(2));
+        UUID empatou = idDe(registrar(jogador, sessao, "QUEDA"));
+        relogio.avancar(Duration.ofSeconds(2));
+        UUID perdeu = idDe(registrar(jogador, sessao, "ALTA"));
+
+        // o jogador sai antes dos 5 s: a sessao vai para a carteira sem as apostas
+        SessaoFlecha encerrada = sessoes.encerrar(jogador, sessao);
+        assertThat(encerrada.getGanhos()).isEqualByComparingTo("0");
+        agendador.rodarAgendadas();
+
+        consultar(jogador, ganhou).andExpect(jsonPath("$.moedasPagas").value(200))
+                .andExpect(jsonPath("$.sessao.status").value("ENCERRADA"))
+                .andExpect(jsonPath("$.sessao.ganhos").value(0.0));
+        consultar(jogador, empatou).andExpect(jsonPath("$.resultadoBinarioBrl").value(0))
+                .andExpect(jsonPath("$.moedasPagas").value(100));
+        consultar(jogador, perdeu).andExpect(jsonPath("$.moedasPagas").value(0));
+
+        List<SessaoFlechaEncerradaEvento> pagamentos = pagamentosPublicados();
+        // errou nao paga nada: nenhum evento
+        assertThat(pagamentos).hasSize(2);
+        OperacaoEstudo opGanhou = operacoes.findById(ganhou).orElseThrow();
+        OperacaoEstudo opEmpatou = operacoes.findById(empatou).orElseThrow();
+        SessaoFlechaEncerradaEvento pagGanhou = pagamentos.get(0);
+        assertThat(pagGanhou.ordemId()).isEqualTo(opGanhou.referenciaPagamento()).isNotEqualTo(ganhou)
+                .isNotEqualTo(sessao);
+        assertThat(pagGanhou.usuarioId()).isEqualTo(jogador);
+        assertThat(pagGanhou.simbolo()).isEqualTo("BTCUSDT");
+        assertThat(pagGanhou.valor()).isEqualByComparingTo("100");
+        assertThat(pagGanhou.resultado()).isEqualTo("GANHOU");
+        assertThat(pagGanhou.valorLiquido()).isEqualByComparingTo("200");
+        assertThat(pagGanhou.acertos()).isEqualTo(1);
+        SessaoFlechaEncerradaEvento pagEmpatou = pagamentos.get(1);
+        assertThat(pagEmpatou.ordemId()).isEqualTo(opEmpatou.referenciaPagamento())
+                .isNotEqualTo(pagGanhou.ordemId());
+        assertThat(pagEmpatou.resultado()).isEqualTo("EMPATOU");
+        assertThat(pagEmpatou.valorLiquido()).isEqualByComparingTo("100");
+
+        // liquidar de novo (revisao, agendamento repetido) nao publica outra vez
+        estudo.liquidar(ganhou);
+        estudo.liquidar(empatou);
+        estudo.liquidar(perdeu);
+        assertThat(pagamentosPublicados()).hasSize(2);
+    }
+
+    private ResultActions meusAcertos(String jogador, UUID sessao) throws Exception {
+        MockHttpServletRequestBuilder pedido = get("/jogos/flecha/estudo/meus-acertos").header("X-Usuario-Id", jogador);
+        return mockMvc.perform(sessao == null ? pedido : pedido.param("sessaoId", sessao.toString()));
+    }
+
+    @Test
+    void meusAcertosContaSoAsFechadasDoJogadorPorAtivoEPorSessao() throws Exception {
+        precos.atualizar(new PrecoAtualizadoEvento("USDTBRL", new BigDecimal("5.00"), null, relogio.instant()));
+        precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
+        String jogador = novoJogador();
+        UUID primeira = sessao(jogador, 4);
+        for (int i = 0; i < 3; i++) {
+            corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
+        }
+        corretora.aberturas.add(() -> {
+            throw new RegraNegocioException("abaixo do minimo");
+        });
+        // acerta (+0,04 US$), empata com o preco parado (-0,01 de taxa) e erra (-0,10), a R$ 5,00
+        corretora.fechamentos.add(() -> exec("80400", "8.04", "-0.0001"));
+        corretora.fechamentos.add(() -> exec("80000", "7.99", "-0.0001"));
+        corretora.fechamentos.add(() -> exec("79000", "7.9", "-0.0001"));
+        for (int i = 0; i < 4; i++) {
+            registrar(jogador, primeira, "ALTA").andExpect(status().isCreated());
+            relogio.avancar(Duration.ofSeconds(2));
+        }
+        // ainda abertas: nao contam
+        meusAcertos(jogador, null).andExpect(jsonPath("$.total.operacoes").value(0));
+        agendador.rodarAgendadas();
+        sessoes.encerrar(jogador, primeira);
+        UUID segunda = sessoes.criar(jogador, "vilarejo", Map.of("eth", 1)).getId();
+        registrarNoAtivo(jogador, segunda, "ETHUSDT", "ALTA").andExpect(status().isCreated());
+        precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2510"), null, relogio.instant()));
+        agendador.rodarAgendadas();
+
+        // a recusada nao conta; o empate fica fora da taxa
+        meusAcertos(jogador, null).andExpect(status().isOk())
+                .andExpect(jsonPath("$.porAtivo", hasSize(3)))
+                .andExpect(jsonPath("$.porAtivo[0].simbolo").value("BTCUSDT"))
+                .andExpect(jsonPath("$.porAtivo[0].operacoes").value(3))
+                .andExpect(jsonPath("$.porAtivo[0].acertos").value(1))
+                .andExpect(jsonPath("$.porAtivo[0].erros").value(1))
+                .andExpect(jsonPath("$.porAtivo[0].empates").value(1))
+                .andExpect(jsonPath("$.porAtivo[0].taxaAcertoPercentual").value(50.0))
+                .andExpect(jsonPath("$.porAtivo[0].resultadoLiquidoBrl").value(-0.35))
+                .andExpect(jsonPath("$.porAtivo[1].simbolo").value("ETHUSDT"))
+                .andExpect(jsonPath("$.porAtivo[1].operacoes").value(1))
+                .andExpect(jsonPath("$.porAtivo[1].acertos").value(1))
+                .andExpect(jsonPath("$.porAtivo[1].taxaAcertoPercentual").value(100.0))
+                // 0,0024 ETH de 2500 a 2510 menos 0,1% por ponta: 0,011976 US$ x 5
+                .andExpect(jsonPath("$.porAtivo[1].resultadoLiquidoBrl").value(0.0599))
+                .andExpect(jsonPath("$.porAtivo[2].simbolo").value("PAXGUSDT"))
+                .andExpect(jsonPath("$.porAtivo[2].operacoes").value(0))
+                .andExpect(jsonPath("$.porAtivo[2].empates").value(0))
+                .andExpect(jsonPath("$.porAtivo[2].taxaAcertoPercentual").isEmpty())
+                .andExpect(jsonPath("$.porAtivo[2].resultadoLiquidoBrl").value(0))
+                .andExpect(jsonPath("$.total.simbolo").doesNotExist())
+                .andExpect(jsonPath("$.total.operacoes").value(4))
+                .andExpect(jsonPath("$.total.acertos").value(2))
+                .andExpect(jsonPath("$.total.erros").value(1))
+                .andExpect(jsonPath("$.total.empates").value(1))
+                .andExpect(jsonPath("$.total.taxaAcertoPercentual").value(66.7))
+                .andExpect(jsonPath("$.total.resultadoLiquidoBrl").value(-0.2901));
+
+        meusAcertos(jogador, primeira)
+                .andExpect(jsonPath("$.porAtivo[1].operacoes").value(0))
+                .andExpect(jsonPath("$.total.operacoes").value(3))
+                .andExpect(jsonPath("$.total.taxaAcertoPercentual").value(50.0))
+                .andExpect(jsonPath("$.total.resultadoLiquidoBrl").value(-0.35));
+        meusAcertos(jogador, segunda)
+                .andExpect(jsonPath("$.porAtivo[0].operacoes").value(0))
+                .andExpect(jsonPath("$.total.operacoes").value(1))
+                .andExpect(jsonPath("$.total.acertos").value(1));
+        // so as operacoes do proprio jogador: a sessao de outro da tudo zerado
+        meusAcertos(novoJogador(), primeira)
+                .andExpect(jsonPath("$.total.operacoes").value(0))
+                .andExpect(jsonPath("$.total.taxaAcertoPercentual").isEmpty())
+                .andExpect(jsonPath("$.total.resultadoLiquidoBrl").value(0));
+        meusAcertos(novoJogador(), null).andExpect(jsonPath("$.porAtivo[0].operacoes").value(0));
+        mockMvc.perform(get("/jogos/flecha/estudo/meus-acertos")).andExpect(status().isUnauthorized());
     }
 }

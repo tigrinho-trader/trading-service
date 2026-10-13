@@ -24,12 +24,18 @@ public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> 
         }
     }
 
-    /** {@code passaroAlvo}: id do unico passaro que a flecha acerta (flechas de mercado), ou nulo se acerta todos. */
-    public record FlechaInfo(String id, String nome, int fatorPreco, BigDecimal fatorMoedas, String passaroAlvo) {
+    /**
+     * {@code passaroAlvo}: id do unico passaro que a flecha acerta (flechas de mercado), ou nulo se acerta todos.
+     * {@code precoFixo}: preco da flecha em qualquer campo (flechas de mercado, a aposta binaria do estudo), ou nulo
+     * quando o preco e fatorPreco x flechaBase do campo.
+     */
+    public record FlechaInfo(String id, String nome, int fatorPreco, BigDecimal fatorMoedas, String passaroAlvo,
+                             Integer precoFixo) {
 
         static FlechaInfo de(TipoFlecha t) {
             return new FlechaInfo(t.id(), t.nome(), t.fatorPreco(), t.fatorMoedas(),
-                    t.passaroAlvo().map(Passaro::id).orElse(null));
+                    t.passaroAlvo().map(Passaro::id).orElse(null),
+                    t.deMercado() ? RegrasFlecha.PRECO_FLECHA_MERCADO : null);
         }
     }
 
