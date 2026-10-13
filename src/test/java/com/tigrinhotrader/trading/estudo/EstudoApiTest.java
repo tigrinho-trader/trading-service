@@ -296,7 +296,8 @@ class EstudoApiTest {
     }
 
     private UUID sessaoDeMercado(String jogador) {
-        return sessoes.criar(jogador, "vilarejo", Map.of("wood", 1, "btc", 1, "eth", 1, "ouro", 1)).getId();
+        // o pico tem os tres ativos
+        return sessoes.criar(jogador, "pico", Map.of("wood", 1, "btc", 1, "eth", 1, "ouro", 1)).getId();
     }
 
     private ResultActions registrarNoAtivo(String jogador, UUID sessao, String simbolo, String direcao)
@@ -387,11 +388,44 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.detail").value("Sem flechas Bitcoin na aljava"));
         assertThat(sessaoAtual(jogador).getRestantes().get(TipoFlecha.OURO)).isEqualTo(1);
 
-        // sessao sem flecha de ouro PAXG
+        // sessao sem flecha de ouro PAXG, num campo que tem o ativo
         String outro = novoJogador();
-        UUID semOuro = sessao(outro, 1);
+        UUID semOuro = sessoes.criar(outro, "pico", Map.of("btc", 1)).getId();
         registrarNoAtivo(outro, semOuro, "PAXGUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value("Sem flechas Ouro PAXG na aljava"));
+    }
+
+    @Test
+    void naoApostaNumAtivoQueOCampoNaoTemEAFlechaFicaGuardada() throws Exception {
+        String jogador = novoJogador();
+        // ethereum e ouro comprados no pico; sobram e ficam guardados (as de mercado valem em qualquer campo)
+        UUID pico = sessoes.criar(jogador, "pico", Map.of("eth", 1, "ouro", 1)).getId();
+        sessoes.encerrar(jogador, pico);
+        // no bosque (bitcoin e ethereum) e no vilarejo (so bitcoin) as flechas entram na aljava...
+        UUID vilarejo = sessoes.criar(jogador, "vilarejo", Map.of("wood", 1)).getId();
+        assertThat(sessaoAtual(jogador).getRestantes().get(TipoFlecha.ETH)).isEqualTo(1);
+
+        // ...mas o passaro do ativo nao voa ali: recusa sem gastar a flecha nem abrir operacao
+        registrarNoAtivo(jogador, vilarejo, "ETHUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("O passaro Ethereum nao aparece no Campo do Vilarejo"));
+        registrarNoAtivo(jogador, vilarejo, "PAXGUSDT", "QUEDA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("O passaro Ouro PAXG nao aparece no Campo do Vilarejo"));
+        SessaoFlecha aberta = sessaoAtual(jogador);
+        assertThat(aberta.getRestantes().get(TipoFlecha.ETH)).isEqualTo(1);
+        assertThat(aberta.getRestantes().get(TipoFlecha.OURO)).isEqualTo(1);
+        assertThat(aberta.getDisparadas().total()).isZero();
+        assertThat(operacoes.findFirstByUsuarioIdOrderByCriadaEmDesc(jogador)).isEmpty();
+
+        // ao encerrar voltam para a guarda e valem num campo com o ativo
+        sessoes.encerrar(jogador, vilarejo);
+        UUID bosque = sessoes.criar(jogador, "bosque", Map.of("wood", 1)).getId();
+        registrarNoAtivo(jogador, bosque, "PAXGUSDT", "QUEDA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("O passaro Ouro PAXG nao aparece no Bosque dos Arqueiros"));
+        precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
+        registrarNoAtivo(jogador, bosque, "ETHUSDT", "ALTA").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.simbolo").value("ETHUSDT"))
+                .andExpect(jsonPath("$.sessao.flechas.eth").value(0))
+                .andExpect(jsonPath("$.sessao.flechas.ouro").value(1));
     }
 
     @Test
@@ -663,7 +697,7 @@ class EstudoApiTest {
         meusAcertos(jogador, null).andExpect(jsonPath("$.total.operacoes").value(0));
         agendador.rodarAgendadas();
         sessoes.encerrar(jogador, primeira);
-        UUID segunda = sessoes.criar(jogador, "vilarejo", Map.of("eth", 1)).getId();
+        UUID segunda = sessoes.criar(jogador, "bosque", Map.of("eth", 1)).getId();
         registrarNoAtivo(jogador, segunda, "ETHUSDT", "ALTA").andExpect(status().isCreated());
         precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2510"), null, relogio.instant()));
         agendador.rodarAgendadas();

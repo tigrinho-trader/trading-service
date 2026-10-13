@@ -22,7 +22,8 @@ import java.util.UUID;
 
 /**
  * Uma partida do Flecha Certeira: o jogador paga entrada + flechas ao abrir (e ao comprar mais), cada tiro soma
- * moedas e, ao encerrar, o resultado (ganhos - custo) vai para a carteira pelo evento ordem.executada. As flechas
+ * as moedas dos passaros (hoje 0: so conta os acertos) e, ao encerrar, o resultado (ganhos - custo) vai para a
+ * carteira pelo evento ordem.executada (resultado zero tambem: a carteira registra como empate). As flechas
  * guardadas de rodadas anteriores entram na aljava sem custo (ja foram pagas) e as que sobram voltam para a guarda.
  * Flechas de mercado nao sao disparadas aqui: o estudo gasta a flecha e soma o pagamento da aposta aos ganhos.
  */
@@ -207,7 +208,8 @@ public class SessaoFlecha {
     }
 
     /**
-     * Encerra a sessao e tira da aljava as flechas que sobraram (o servico guarda para a proxima rodada).
+     * Encerra a sessao e tira da aljava as flechas que sobraram (o servico guarda para a proxima rodada). Flechas
+     * antigas de uma sessao aberta antes de elas sairem do jogo tambem saem, para serem guardadas e reembolsadas.
      *
      * @return as flechas que sobraram
      */
@@ -216,7 +218,7 @@ public class SessaoFlecha {
         status = StatusSessao.ENCERRADA;
         encerradaEm = agora;
         usuarioAberta = null;
-        return restantes.esvaziar();
+        return restantes.esvaziarTudo();
     }
 
     private void exigirAberta() {

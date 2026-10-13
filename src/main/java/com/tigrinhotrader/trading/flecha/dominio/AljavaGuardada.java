@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -61,10 +62,31 @@ public class AljavaGuardada {
         atualizadaEm = agora;
     }
 
-    /** Tira todas as flechas guardadas (vao para a aljava da sessao) e devolve o que havia. */
+    /**
+     * Tira todas as flechas guardadas (vao para a aljava da sessao) e devolve o que havia. As antigas (ferro, ouro,
+     * diamante) ficam, esperando o reembolso.
+     */
     public Aljava retirar(Instant agora) {
         atualizadaEm = agora;
         return flechas.esvaziar();
+    }
+
+    /** Tira as flechas antigas, depois de o servico mandar o reembolso para a carteira. */
+    public void zerarAntigas(Instant agora) {
+        flechas.zerarAntigas();
+        atualizadaEm = agora;
+    }
+
+    /**
+     * Referencia do reembolso das flechas antigas desta aljava nesta versao: a mesma se a transacao voltar e o
+     * reembolso for tentado de novo (a carteira e idempotente por ordemId), outra se a aljava mudar depois.
+     */
+    public UUID referenciaReembolso() {
+        return UUID.nameUUIDFromBytes(("reembolso-flechas:" + id + ":" + versao).getBytes(StandardCharsets.UTF_8));
+    }
+
+    public UUID getId() {
+        return id;
     }
 
     public String getUsuarioId() {

@@ -23,6 +23,7 @@ import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaPublisher;
 import com.tigrinhotrader.trading.mensageria.SessaoFlechaEncerradaEvento;
 import com.tigrinhotrader.trading.servico.ConflitoException;
+import com.tigrinhotrader.trading.servico.PedidoInvalidoException;
 import com.tigrinhotrader.trading.servico.RegraNegocioException;
 import com.tigrinhotrader.trading.servico.SaldoDisponivel;
 import com.tigrinhotrader.trading.servico.ServicoIndisponivelException;
@@ -112,10 +113,140 @@ class SessaoFlechaServiceTest {
 
     @Test
     void criaCobrandoEntradaMaisFlechas() {
-        SessaoFlecha s = service.criar("u1", "bosque", Map.of("wood", 10, "iron", 5));
-        // 15 + 10 x 3 + 5 x 6
-        assertThat(s.getCusto()).isEqualByComparingTo("75");
-        assertThat(s.getRestantes().total()).isEqualTo(15);
+        // 15 + 10 madeira (gratis) + 1 ethereum (100); ferro com 0 no pedido nao atrapalha
+        SessaoFlecha s = service.criar("u1", "bosque", Map.of("wood", 10, "eth", 1, "iron", 0));
+        assertThat(s.getCusto()).isEqualByComparingTo("115");
+        assertThat(s.getRestantes().total()).isEqualTo(11);
+        verify(wallet).saldo("u1");
+    }
+
+    @Test
+    void ferroOuroEDiamanteForamRemovidos() {
+        for (String flecha : List.of("iron", "gold", "diamond")) {
+            assertThatThrownBy(() -> service.criar("u1", "reserva-real", Map.of("wood", 1, flecha, 1)))
+                    .isInstanceOf(PedidoInvalidoException.class)
+                    .hasMessage("Flechas de ferro, ouro e diamante foram removidas do jogo: use madeira (gratis) ou "
+                            + "as flechas de mercado");
+        }
+        SessaoFlecha s = aberta(agora);
+        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "diamond", 1))
+                .isInstanceOf(PedidoInvalidoException.class);
+        assertThatThrownBy(() -> service.disparar("u1", s.getId(), "iron", List.of()))
+                .isInstanceOf(PedidoInvalidoException.class);
+        assertThat(s.getCusto()).isEqualByComparingTo("5");
+        verify(wallet, never()).saldo(any());
+
+        // cliente antigo mandando os tipos removidos com 0 (ou nulo) abre normalmente
+        Map<String, Integer> antigo = new HashMap<>(Map.of("wood", 1, "iron", 0, "gold", 0));
+        antigo.put("diamond", null);
+        assertThat(service.criar("u1", "vilarejo", antigo).getRestantes().total()).isEqualTo(1);
+    }
+
+    @Test
+    void flechasAntigasGuardadasNaoEntramNaSessao() {
+        AljavaGuardada doBosque = guardada("bosque", Map.of(TipoFlecha.WOOD, 1));
+        doBosque.guardar(Aljava.antigas(2, 0, 0), agora);
+
+        SessaoFlecha s = service.criar("u1", "bosque", Map.of());
+
+        assertThat(s.getRestantes().total()).isEqualTo(1);
+        assertThat(s.getRestantes().antigas()).isZero();
+        assertThat(doBosque.getFlechas().antigas()).isEqualTo(2);
+    }
+
+    @Test
+    void reembolsaAsFlechasAntigasGuardadasUmaVezSo() {
+        // bosque: 1 ferro (2 x 3) + 1 diamante (8 x 3) = 30
+        AljavaGuardada doBosque = new AljavaGuardada("u1", "bosque", agora);
+        doBosque.guardar(Aljava.antigas(1, 0, 1), agora);
+        doBosque.guardar(Aljava.de(Map.of(TipoFlecha.WOOD, 3)), agora);
+        // escopo sem campo conhecido: so zera, sem valor
+        AljavaGuardada estranha = new AljavaGuardada("u1", "lua", agora);
+        estranha.guardar(Aljava.antigas(5, 0, 0), agora);
+        AljavaGuardada sumiu = new AljavaGuardada("u1", "pico", agora);
+        when(aljavas.findComFlechasAntigas()).thenReturn(List.of(doBosque, estranha, sumiu));
+        when(aljavas.findById(doBosque.getId())).thenReturn(Optional.of(doBosque));
+        when(aljavas.findById(estranha.getId())).thenReturn(Optional.of(estranha));
+        when(aljavas.findById(sumiu.getId())).thenReturn(Optional.empty());
+        UUID referencia = doBosque.referenciaReembolso();
+
+        assertThat(service.reembolsarFlechasAntigas()).isEqualTo(2);
+
+        ArgumentCaptor<SessaoFlechaEncerradaEvento> evento = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);
+        verify(publisher).publicarSessaoFlecha(evento.capture());
+        assertThat(evento.getValue().ordemId()).isEqualTo(referencia);
+        assertThat(evento.getValue().usuarioId()).isEqualTo("u1");
+        assertThat(evento.getValue().simbolo()).isEqualTo("bosque");
+        assertThat(evento.getValue().tipo()).isEqualTo("FLECHA_REEMBOLSO");
+        assertThat(evento.getValue().resultado()).isEqualTo("GANHOU");
+        assertThat(evento.getValue().valor()).isEqualByComparingTo("30");
+        assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("30");
+        assertThat(evento.getValue().executadaEm()).isEqualTo(agora);
+        assertThat(doBosque.getFlechas().antigas()).isZero();
+        assertThat(doBosque.getFlechas().get(TipoFlecha.WOOD)).isEqualTo(3);
+        assertThat(estranha.getFlechas().antigas()).isZero();
+        verify(aljavas).saveAndFlush(doBosque);
+
+        // de novo (aljava ja zerada): nada a reembolsar
+        assertThat(service.reembolsarFlechasAntigas()).isZero();
+        verify(publisher, times(1)).publicarSessaoFlecha(any());
+    }
+
+    @Test
+    void reembolsoComAFilaForaDoArFicaParaOProximoCiclo() {
+        AljavaGuardada doVilarejo = new AljavaGuardada("u1", "vilarejo", agora);
+        doVilarejo.guardar(Aljava.antigas(0, 1, 0), agora);
+        when(aljavas.findComFlechasAntigas()).thenReturn(List.of(doVilarejo));
+        when(aljavas.findById(doVilarejo.getId())).thenReturn(Optional.of(doVilarejo));
+        doThrow(new AmqpConnectException(new RuntimeException("sem broker"))).when(publisher)
+                .publicarSessaoFlecha(any());
+
+        assertThat(service.reembolsarFlechasAntigas()).isZero();
+    }
+
+    @Test
+    void madeiraNoMeioDaSessaoEGratisESemConsultarACarteira() {
+        SessaoFlecha s = aberta(agora);
+        when(wallet.saldo("u1")).thenThrow(new ServicoIndisponivelException("wallet fora"));
+
+        SessaoFlecha depois = service.comprar("u1", s.getId(), "wood", 20);
+
+        assertThat(depois.getCusto()).isEqualByComparingTo("5");
+        assertThat(depois.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(21);
+        verify(wallet, never()).saldo(any());
+    }
+
+    @Test
+    void flechaDeMercadoSoNosCamposComOAtivo() {
+        assertThatThrownBy(() -> service.criar("u1", "vilarejo", Map.of("eth", 1)))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessage("Flechas Ethereum nao sao vendidas no Campo do Vilarejo");
+        assertThatThrownBy(() -> service.criar("u1", "bosque", Map.of("wood", 1, "ouro", 1)))
+                .hasMessage("Flechas Ouro PAXG nao sao vendidas no Bosque dos Arqueiros");
+        SessaoFlecha s = aberta(agora);
+        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "ouro", 1))
+                .hasMessage("Flechas Ouro PAXG nao sao vendidas no Campo do Vilarejo");
+        verify(wallet, never()).saldo(any());
+
+        // a bitcoin vale em todo campo; no pico tem os tres ativos
+        assertThat(service.comprar("u1", s.getId(), "btc", 1).getCusto()).isEqualByComparingTo("105");
+        SessaoFlecha pico = service.criar("u1", "pico", Map.of("btc", 1, "eth", 1, "ouro", 1));
+        assertThat(pico.getCusto()).isEqualByComparingTo("340");
+    }
+
+    @Test
+    void passaroDeMercadoSoApareceNosCamposComOAtivo() {
+        SessaoFlecha s = aberta(agora);
+        s.comprar(TipoFlecha.WOOD, 1, agora);
+        assertThatThrownBy(() -> service.disparar("u1", s.getId(), "wood", List.of("btc", "eth")))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessage("Passaro eth nao aparece no Campo do Vilarejo");
+        assertThatThrownBy(() -> service.disparar("u1", s.getId(), "wood", List.of("ouro")))
+                .hasMessage("Passaro ouro nao aparece no Campo do Vilarejo");
+
+        SessaoFlechaService.ResultadoTiro r = service.disparar("u1", s.getId(), "wood", List.of("btc", "red"));
+        assertThat(r.ganhosTiro()).isZero();
+        assertThat(r.sessao().getAcertos()).isEqualTo(2);
     }
 
     @Test
@@ -147,14 +278,14 @@ class SessaoFlechaServiceTest {
 
     @Test
     void abreComAsGuardadasDoCampoEAsDeMercadoSemCobrarPorElas() {
-        AljavaGuardada doBosque = guardada("bosque", Map.of(TipoFlecha.IRON, 4));
+        AljavaGuardada doBosque = guardada("bosque", Map.of(TipoFlecha.WOOD, 4));
         AljavaGuardada deMercado = guardada(AljavaGuardada.MERCADO, Map.of(TipoFlecha.BTC, 2));
 
         SessaoFlecha s = service.criar("u1", "bosque", Map.of("wood", 1));
 
-        // entrada 15 + 1 madeira de 3; as guardadas ja foram pagas
-        assertThat(s.getCusto()).isEqualByComparingTo("18");
-        assertThat(s.getRestantes().get(TipoFlecha.IRON)).isEqualTo(4);
+        // so a entrada 15: a madeira e gratis e as guardadas ja foram pagas
+        assertThat(s.getCusto()).isEqualByComparingTo("15");
+        assertThat(s.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(5);
         assertThat(s.getRestantes().get(TipoFlecha.BTC)).isEqualTo(2);
         assertThat(s.getCompradas().total()).isEqualTo(1);
         assertThat(doBosque.getFlechas().total()).isZero();
@@ -181,14 +312,16 @@ class SessaoFlechaServiceTest {
 
     @Test
     void encerrarGuardaAsComunsNoCampoEAsDeMercadoParaTodos() {
+        // sessao aberta antes de o ferro sair do jogo: o ferro que sobrou vai para a guarda, para o reembolso
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO,
-                Aljava.de(Map.of(TipoFlecha.GOLD, 2, TipoFlecha.OURO, 1)), agora);
+                Aljava.de(Map.of(TipoFlecha.WOOD, 2, TipoFlecha.OURO, 1)), Aljava.antigas(1, 0, 0), agora);
         when(repositorio.findByIdAndUsuarioId(s.getId(), "u1")).thenReturn(Optional.of(s));
-        AljavaGuardada doPico = guardada("pico", Map.of(TipoFlecha.GOLD, 1));
+        AljavaGuardada doPico = guardada("pico", Map.of(TipoFlecha.WOOD, 1));
 
         service.encerrar("u1", s.getId());
 
-        assertThat(doPico.getFlechas().get(TipoFlecha.GOLD)).isEqualTo(3);
+        assertThat(doPico.getFlechas().get(TipoFlecha.WOOD)).isEqualTo(3);
+        assertThat(doPico.getFlechas().antigas()).isEqualTo(1);
         ArgumentCaptor<AljavaGuardada> salvas = ArgumentCaptor.forClass(AljavaGuardada.class);
         verify(aljavas, times(2)).save(salvas.capture());
         assertThat(salvas.getAllValues()).extracting(AljavaGuardada::getEscopo)
@@ -235,6 +368,31 @@ class SessaoFlechaServiceTest {
     }
 
     @Test
+    void resultadoZeroTambemVaiParaACarteiraComoEmpate() {
+        // reserva real: 100 + 2 bitcoin (200); as apostas pagaram 200 (acertou) + 100 (preco parado)
+        SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.RESERVA_REAL,
+                Aljava.de(Map.of(TipoFlecha.BTC, 2)), agora);
+        when(repositorio.findByIdAndUsuarioId(s.getId(), "u1")).thenReturn(Optional.of(s));
+        s.usarFlechaDeMercado(TipoFlecha.BTC, agora);
+        s.usarFlechaDeMercado(TipoFlecha.BTC, agora);
+        s.receberApostaDeMercado(200, true);
+        s.receberApostaDeMercado(100, false);
+
+        SessaoFlecha encerrada = service.encerrar("u1", s.getId());
+
+        assertThat(encerrada.isAberta()).isFalse();
+        ArgumentCaptor<SessaoFlechaEncerradaEvento> evento = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);
+        verify(publisher).publicarSessaoFlecha(evento.capture());
+        // a carteira aplica 0 e registra empate (EMPATE_RODADA), sem mexer no saldo
+        assertThat(evento.getValue().resultado()).isEqualTo("EMPATOU");
+        assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("0");
+        assertThat(evento.getValue().valor()).isEqualByComparingTo("300");
+        assertThat(evento.getValue().ganhos()).isEqualByComparingTo("300");
+        assertThat(evento.getValue().acertos()).isEqualTo(1);
+        verify(aljavas, never()).save(any());
+    }
+
+    @Test
     void filaForaDoArNoEncerramentoViraIndisponivel() {
         SessaoFlecha s = aberta(agora);
         doThrow(new AmqpConnectException(new RuntimeException("sem broker"))).when(publisher)
@@ -257,8 +415,9 @@ class SessaoFlechaServiceTest {
         assertThat(evento.getValue().tipo()).isEqualTo("FLECHA_CERTEIRA");
         assertThat(evento.getValue().simbolo()).isEqualTo("vilarejo");
         assertThat(evento.getValue().resultado()).isEqualTo("PERDEU");
-        assertThat(evento.getValue().valor()).isEqualByComparingTo("6");
-        assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("-6");
+        // so a entrada: a madeira e gratis
+        assertThat(evento.getValue().valor()).isEqualByComparingTo("5");
+        assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("-5");
         assertThat(evento.getValue().executadaEm()).isEqualTo(agora);
         // a madeira que sobrou fica guardada no vilarejo
         ArgumentCaptor<AljavaGuardada> guardada = ArgumentCaptor.forClass(AljavaGuardada.class);
@@ -296,5 +455,6 @@ class SessaoFlechaServiceTest {
         SessaoFlechaService mockService = mock(SessaoFlechaService.class);
         new EncerradorSessoesFlecha(mockService).executar();
         verify(mockService).encerrarOciosas();
+        verify(mockService).reembolsarFlechasAntigas();
     }
 }

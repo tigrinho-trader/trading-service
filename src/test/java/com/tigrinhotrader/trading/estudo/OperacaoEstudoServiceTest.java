@@ -188,7 +188,7 @@ class OperacaoEstudoServiceTest {
     }
 
     private SessaoFlecha sessaoAberta() {
-        return new SessaoFlecha(UUID.randomUUID(), "u", Campo.VILAREJO, Aljava.de(Map.of(TipoFlecha.ETH, 1)), AGORA);
+        return new SessaoFlecha(UUID.randomUUID(), "u", Campo.BOSQUE, Aljava.de(Map.of(TipoFlecha.ETH, 1)), AGORA);
     }
 
     @Test

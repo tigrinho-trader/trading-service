@@ -2,6 +2,7 @@ package com.tigrinhotrader.trading.estudo;
 
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
+import com.tigrinhotrader.trading.flecha.regras.Campo;
 import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaPublisher;
 import com.tigrinhotrader.trading.mensageria.SessaoFlechaEncerradaEvento;
@@ -158,6 +159,11 @@ public class OperacaoEstudoService {
             throw new RegraNegocioException("Sessao ja encerrada");
         }
         TipoFlecha flecha = ativo.flecha();
+        Campo campo = sessao.getCampo();
+        if (!campo.temFlecha(flecha)) {
+            // flecha guardada de um ativo que este campo nao tem: fica na aljava e volta para a guarda ao encerrar
+            throw new RegraNegocioException("O passaro " + flecha.nome() + " nao aparece no " + campo.nome());
+        }
         if (sessao.getRestantes().get(flecha) < 1) {
             throw new RegraNegocioException("Sem flechas " + flecha.nome() + " na aljava");
         }

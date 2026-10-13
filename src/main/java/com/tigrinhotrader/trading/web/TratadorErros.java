@@ -1,6 +1,7 @@
 package com.tigrinhotrader.trading.web;
 
 import com.tigrinhotrader.trading.servico.ConflitoException;
+import com.tigrinhotrader.trading.servico.PedidoInvalidoException;
 import com.tigrinhotrader.trading.servico.RecursoNaoEncontradoException;
 import com.tigrinhotrader.trading.servico.RegraNegocioException;
 import com.tigrinhotrader.trading.servico.RitmoExcedidoException;
@@ -18,6 +19,11 @@ public class TratadorErros {
     @ExceptionHandler(RegraNegocioException.class)
     ProblemDetail regraNegocio(RegraNegocioException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
+    @ExceptionHandler(PedidoInvalidoException.class)
+    ProblemDetail pedidoInvalido(PedidoInvalidoException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
     @ExceptionHandler(RecursoNaoEncontradoException.class)

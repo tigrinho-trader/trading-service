@@ -7,21 +7,21 @@ import java.util.Optional;
 /**
  * Tipos de flecha: custam {@code fatorPreco} vezes o preco base do campo e multiplicam as moedas do passaro por
  * {@code fatorMoedas}; as de mercado tem preco fixo ({@link RegrasFlecha#PRECO_FLECHA_MERCADO}). Espelha ARROW_TYPES
- * do frontend.
+ * do frontend. A madeira e gratis (treino) e passaros nao pagam moedas: so as apostas das flechas de mercado rendem.
+ * As antigas flechas de ferro, ouro e diamante foram removidas (as guardadas sao reembolsadas, ver
+ * {@code SessaoFlechaService#reembolsarFlechasAntigas}).
  */
 public enum TipoFlecha {
-    WOOD("wood", "Madeira", 1, new BigDecimal("1")),
-    IRON("iron", "Ferro", 2, new BigDecimal("2.5")),
-    GOLD("gold", "Ouro", 4, new BigDecimal("5.5")),
-    DIAMOND("diamond", "Diamante", 8, new BigDecimal("12")),
+    /** Flecha de treino: gratis em todo campo. */
+    WOOD("wood", "Madeira", 0, new BigDecimal("1")),
     /**
      * Flecha de mercado: custa {@link RegrasFlecha#PRECO_FLECHA_MERCADO} em qualquer campo e e uma aposta binaria
      * (sobe ou desce em 5 s) registrada pelo estudo, nao pelos tiros. So voa ate o passaro bitcoin.
      */
     BTC("btc", "Bitcoin", 1, new BigDecimal("2")),
-    /** Especial como a bitcoin, mas so acerta o passaro ethereum. */
+    /** Especial como a bitcoin, mas so acerta o passaro ethereum (campos com o ativo). */
     ETH("eth", "Ethereum", 1, new BigDecimal("2")),
-    /** Especial como a bitcoin, mas so acerta o passaro do ouro. */
+    /** Especial como a bitcoin, mas so acerta o passaro do ouro (campos com o ativo). */
     OURO("ouro", "Ouro PAXG", 1, new BigDecimal("2"));
 
     private final String id;
@@ -52,7 +52,7 @@ public enum TipoFlecha {
             case BTC -> Optional.of(Passaro.BTC);
             case ETH -> Optional.of(Passaro.ETH);
             case OURO -> Optional.of(Passaro.OURO);
-            default -> Optional.empty();
+            case WOOD -> Optional.empty();
         };
     }
 

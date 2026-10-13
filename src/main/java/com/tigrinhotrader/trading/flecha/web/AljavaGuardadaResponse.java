@@ -9,7 +9,7 @@ import java.util.Map;
 
 /**
  * Flechas guardadas do jogador, com todo campo e todo tipo (zeros inclusive):
- * {@code { "campos": { "vilarejo": { "wood": 0, "iron": 0, "gold": 0, "diamond": 0 }, ... },
+ * {@code { "campos": { "vilarejo": { "wood": 0 }, ... },
  * "mercado": { "btc": 0, "eth": 0, "ouro": 0 } }}. As comuns so valem no campo onde foram compradas; as de mercado
  * valem em qualquer campo.
  */

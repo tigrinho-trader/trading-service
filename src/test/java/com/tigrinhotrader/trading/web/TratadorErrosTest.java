@@ -3,6 +3,7 @@ package com.tigrinhotrader.trading.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tigrinhotrader.trading.servico.ConflitoException;
+import com.tigrinhotrader.trading.servico.PedidoInvalidoException;
 import com.tigrinhotrader.trading.servico.RitmoExcedidoException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -23,5 +24,6 @@ class TratadorErrosTest {
     void conflitoERitmo() {
         assertThat(tratador.conflito(new ConflitoException("ja aberta")).getStatus()).isEqualTo(409);
         assertThat(tratador.ritmoExcedido(new RitmoExcedidoException("calma")).getStatus()).isEqualTo(429);
+        assertThat(tratador.pedidoInvalido(new PedidoInvalidoException("removida")).getStatus()).isEqualTo(400);
     }
 }

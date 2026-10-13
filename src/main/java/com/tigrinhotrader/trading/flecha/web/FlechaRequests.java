@@ -11,7 +11,7 @@ public final class FlechaRequests {
     private FlechaRequests() {
     }
 
-    /** {@code { "campo": "bosque", "flechas": { "wood": 10, "iron": 5 } }} */
+    /** {@code { "campo": "bosque", "flechas": { "wood": 10, "eth": 1 } }} */
     public record NovaSessao(@NotBlank String campo, @NotNull Map<String, Integer> flechas) {
     }
 
@@ -19,7 +19,7 @@ public final class FlechaRequests {
     public record Tiro(@NotBlank String flecha, List<String> acertos) {
     }
 
-    /** {@code { "flecha": "iron", "quantidade": 5 }} */
+    /** {@code { "flecha": "wood", "quantidade": 5 }} */
     public record CompraFlechas(@NotBlank String flecha, @NotNull Integer quantidade) {
     }
 }
