@@ -38,7 +38,8 @@ public class Aljava {
     private int eth;
     @Column(nullable = false)
     private int ouro;
-    @Column(nullable = false)
+    // default 0: a coluna entra numa tabela que ja tem linhas (aljavas_guardadas) sem violar o not null
+    @Column(columnDefinition = "integer default 0 not null")
     private int v100;
 
     protected Aljava() {
