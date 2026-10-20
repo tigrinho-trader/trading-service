@@ -42,7 +42,7 @@ public class CorretoraDerivOptions implements Corretora {
 
     @Override
     public ModoEstudo modo() {
-        return propriedades.realHabilitado() ? ModoEstudo.REAL : ModoEstudo.SIMULADO;
+        return propriedades.habilitado() ? ModoEstudo.REAL : ModoEstudo.SIMULADO;
     }
 
     @Override
@@ -104,7 +104,7 @@ public class CorretoraDerivOptions implements Corretora {
     }
 
     private void exigirReal() {
-        if (!propriedades.realHabilitado()) throw new RegraNegocioException("Deriv está em modo SIMULADO ou sem credenciais");
+        if (!propriedades.habilitado()) throw new RegraNegocioException("Deriv está em modo SIMULADO ou sem credenciais");
     }
 
     private BigDecimal arredondarStake(BigDecimal valor) {

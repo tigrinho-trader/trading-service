@@ -230,7 +230,7 @@ public class OperacaoEstudoService {
      */
     Corretora corretoraDe(String simbolo) {
         if (simbolo.equalsIgnoreCase(AtivoEstudo.V100.simbolo()) && corretoraDeriv != null
-                && corretoraDeriv.modo() == ModoEstudo.REAL) {
+                && corretoraDeriv.modo() != ModoEstudo.SIMULADO) {
             return corretoraDeriv;
         }
         if (simbolo.equalsIgnoreCase(propriedades.simbolo())) {

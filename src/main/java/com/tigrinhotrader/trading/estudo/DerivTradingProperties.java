@@ -13,11 +13,11 @@ public record DerivTradingProperties(String apiToken, String appId, String accou
         restUrl = restUrl == null || restUrl.isBlank() ? "https://api.derivws.com" : restUrl.replaceAll("/+$", "");
     }
 
-    public boolean realHabilitado() {
-        return "REAL".equals(mode) && !apiToken.isEmpty() && !appId.isEmpty();
+    public boolean habilitado() {
+        return ("DEMO".equals(mode) || "REAL".equals(mode)) && !apiToken.isEmpty() && !appId.isEmpty();
     }
 
     public String accountType() {
-        return realHabilitado() ? "real" : "demo";
+        return "REAL".equals(mode) ? "real" : "demo";
     }
 }
