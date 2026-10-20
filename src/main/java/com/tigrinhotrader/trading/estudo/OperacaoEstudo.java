@@ -202,8 +202,8 @@ public class OperacaoEstudo {
     /**
      * Liquida a aposta (uma vez so). FECHADA paga a aposta mais o resultado liquido da operacao (depois das taxas)
      * em moedas: {@code apostaMoedas + MOEDAS_POR_REAL x resultadoLiquidoBrl}, arredondado em centavos (HALF_UP) e
-     * nunca menos que 0; vale para acerto, erro e preco parado (ex.: -R$ 0,06 paga 99,40). RECUSADA ou FALHOU
-     * devolve a aposta.
+     * nunca menos que 0; vale para acerto e erro (ex.: -R$ 0,06 paga 99,40). Empate (preco parado) devolve a aposta
+     * inteira, mesmo com as taxas; RECUSADA ou FALHOU tambem devolve a aposta.
      *
      * @return moedas pagas ao jogador
      */
@@ -212,8 +212,8 @@ public class OperacaoEstudo {
             throw new IllegalStateException("Operacao " + id + " nao aguarda liquidacao");
         }
         BigDecimal aposta = BigDecimal.valueOf(apostaMoedas);
-        BigDecimal pagas = status != StatusOperacao.FECHADA ? aposta
-                : aposta.add(resultadoLiquidoBrl.multiply(MOEDAS_POR_REAL));
+        boolean devolve = status != StatusOperacao.FECHADA || sinalAposta() == 0;
+        BigDecimal pagas = devolve ? aposta : aposta.add(resultadoLiquidoBrl.multiply(MOEDAS_POR_REAL));
         moedasPagas = pagas.setScale(2, RoundingMode.HALF_UP).max(NADA);
         return moedasPagas;
     }

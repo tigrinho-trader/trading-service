@@ -229,6 +229,25 @@ class OperacaoEstudoServiceTest {
     }
 
     @Test
+    void empateDevolveAApostaInteiraMesmoComAsTaxas() {
+        // preco parado (100 -> 100) com R$ 0,06 de taxa: resultado liquido negativo, mas o jogador recebe as 100
+        OperacaoEstudo o = criarTerminada(StatusOperacao.FECHADA, "100", UUID.randomUUID(), "-100.06");
+
+        assertThat(o.sinalAposta()).isZero();
+        assertThat(o.getResultadoLiquidoBrl()).isNegative();
+        assertThat(o.liquidar()).isEqualByComparingTo("100.00").hasScaleOf(2);
+        assertThat(o.ganhouAposta()).isFalse();
+    }
+
+    @Test
+    void contratoDerivComSaidaIgualAEntradaEEmpate() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(CorretoraDerivOptions.empatou(json.readTree("{\"entry_tick\":1234.56,\"exit_tick\":1234.560}"))).isTrue();
+        assertThat(CorretoraDerivOptions.empatou(json.readTree("{\"entry_spot\":\"1234.56\",\"exit_tick\":1234.57}"))).isFalse();
+        assertThat(CorretoraDerivOptions.empatou(json.readTree("{\"entry_tick\":1234.56}"))).isFalse();
+    }
+
+    @Test
     void acertarADirecaoComAsTaxasComendoOLucroPagaMenosQueAApostaMasContaComoAcerto() {
         OperacaoEstudoService s = servico(false);
         SessaoFlecha sessao = sessaoAberta();

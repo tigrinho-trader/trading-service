@@ -92,7 +92,9 @@ public class CorretoraDerivOptions implements Corretora {
             JsonNode contratoFinal = sessao.esperarLiquidacao(contrato);
             BigDecimal payout = contratoFinal.hasNonNull("payout") ? decimal(contratoFinal, "payout") : BigDecimal.ZERO;
             BigDecimal lucro = contratoFinal.hasNonNull("profit") ? decimal(contratoFinal, "profit") : payout.add(abertura.fluxoUsdt());
-            BigDecimal marca = lucro.signum() > 0 ? BigDecimal.ONE : BigDecimal.ONE.negate();
+            // empate: o tick de saida igual ao de entrada (na Deriv o contrato perde, mas o jogo devolve a aposta)
+            BigDecimal marca = empatou(contratoFinal) ? BigDecimal.ZERO
+                    : lucro.signum() > 0 ? BigDecimal.ONE : BigDecimal.ONE.negate();
             BigDecimal preco = abertura.precoMedio().add(marca.multiply(BigDecimal.ONE));
             sessoes.remove(contrato);
             sessao.fechar();
@@ -136,6 +138,16 @@ public class CorretoraDerivOptions implements Corretora {
     }
 
     private static BigDecimal decimal(JsonNode n, String campo) { return new BigDecimal(n.path(campo).asText("0")); }
+
+    /** O contrato terminou no mesmo preco em que entrou (entry_tick/entry_spot igual a exit_tick). */
+    static boolean empatou(JsonNode contrato) {
+        JsonNode entrada = contrato.hasNonNull("entry_tick") ? contrato.get("entry_tick") : contrato.get("entry_spot");
+        JsonNode saida = contrato.get("exit_tick");
+        if (entrada == null || entrada.isNull() || saida == null || saida.isNull()) {
+            return false;
+        }
+        return new BigDecimal(entrada.asText()).compareTo(new BigDecimal(saida.asText())) == 0;
+    }
     private static String mensagem(Exception e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
 
     private final class Sessao {
