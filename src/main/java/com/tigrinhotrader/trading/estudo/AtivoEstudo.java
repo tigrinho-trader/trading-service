@@ -12,7 +12,8 @@ import java.util.Optional;
 public enum AtivoEstudo {
     BTC("BTCUSDT", TipoFlecha.BTC),
     ETH("ETHUSDT", TipoFlecha.ETH),
-    OURO("PAXGUSDT", TipoFlecha.OURO);
+    OURO("PAXGUSDT", TipoFlecha.OURO),
+    V100("1HZ100V", TipoFlecha.V100);
 
     private final String simbolo;
     private final TipoFlecha flecha;

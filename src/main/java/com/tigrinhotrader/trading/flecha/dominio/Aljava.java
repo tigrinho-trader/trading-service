@@ -38,6 +38,8 @@ public class Aljava {
     private int eth;
     @Column(nullable = false)
     private int ouro;
+    @Column(nullable = false)
+    private int v100;
 
     protected Aljava() {
         // JPA
@@ -78,6 +80,7 @@ public class Aljava {
         c.btc = btc;
         c.eth = eth;
         c.ouro = ouro;
+        c.v100 = v100;
         return c;
     }
 
@@ -87,6 +90,7 @@ public class Aljava {
             case BTC -> btc;
             case ETH -> eth;
             case OURO -> ouro;
+            case V100 -> v100;
         };
     }
 
@@ -97,6 +101,7 @@ public class Aljava {
             case BTC -> btc += quantidade;
             case ETH -> eth += quantidade;
             case OURO -> ouro += quantidade;
+            case V100 -> v100 += quantidade;
         }
     }
 
@@ -172,7 +177,7 @@ public class Aljava {
 
     /** Flechas que podem ser usadas (as antigas nao contam). */
     public int total() {
-        return wood + btc + eth + ouro;
+        return wood + btc + eth + ouro + v100;
     }
 
     /** Quanto custam estas flechas no campo (sem a entrada). */

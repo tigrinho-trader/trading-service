@@ -18,7 +18,8 @@ public enum Passaro {
     /** Passaro ethereum: voa conforme a cotacao do ETH, fora do sorteio, nos campos que tem o ativo. */
     ETH("eth", 0, true),
     /** Passaro do ouro: voa conforme a cotacao do ouro (PAXG), fora do sorteio, nos campos que tem o ativo. */
-    OURO("ouro", 0, true);
+    OURO("ouro", 0, true),
+    V100("v100", 0, true);
 
     private final String id;
     private final int moedas;

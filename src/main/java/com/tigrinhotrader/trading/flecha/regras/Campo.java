@@ -21,9 +21,9 @@ public enum Campo {
     BOSQUE("bosque", "Bosque dos Arqueiros", 15, 3, 4, pesos("4", "2", "3", "1", "0.5"),
             mercado(Passaro.BTC, Passaro.ETH)),
     PICO("pico", "Pico das Águias", 40, 8, 10, pesos("3", "1", "3", "3", "0.8"),
-            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO)),
+            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100)),
     RESERVA_REAL("reserva-real", "Reserva Real", 100, 20, 25, pesos("2", "1", "3", "4", "1.2"),
-            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO));
+            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100));
 
     private final String slug;
     private final String nome;

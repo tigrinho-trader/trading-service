@@ -62,6 +62,16 @@ estudo:
     recv-window: 5000
     timeout: 5s
 
+# Opções Deriv usadas somente pelo pássaro V100. O modo padrão é SIMULADO.
+# São as três variáveis que devem ser preenchidas no EasyPanel para ligar o REAL:
+# DERIV_API_TOKEN, DERIV_APP_ID e DERIV_TRADING_MODE=REAL.
+deriv:
+  api-token: ${DERIV_API_TOKEN:}
+  app-id: ${DERIV_APP_ID:}
+  account-id: ${DERIV_ACCOUNT_ID:}
+  mode: ${DERIV_TRADING_MODE:SIMULADO}
+  rest-url: ${DERIV_REST_URL:https://api.derivws.com}
+
 management:
   endpoints:
     web:

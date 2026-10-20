@@ -101,6 +101,9 @@ public class OperacaoEstudoService {
     private final SessaoFlechaRepository sessoes;
     /** Corretora configurada (pode ser REAL): so para o ativo de {@code estudo.simbolo}. */
     private final Corretora corretora;
+    /** Corretora de opções da Deriv; só é usada pelo ativo V100 quando DERIV_TRADING_MODE=REAL. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CorretoraDerivOptions corretoraDeriv;
     /** Simulacoes dos outros ativos, criadas no primeiro uso. */
     private final Map<String, Corretora> simuladas = new ConcurrentHashMap<>();
     private final Agendador agendador;
@@ -226,6 +229,10 @@ public class OperacaoEstudoService {
      * ativo e sempre simulado, para dinheiro real nunca sair por um ativo que o dono nao ligou.
      */
     Corretora corretoraDe(String simbolo) {
+        if (simbolo.equalsIgnoreCase(AtivoEstudo.V100.simbolo()) && corretoraDeriv != null
+                && corretoraDeriv.modo() == ModoEstudo.REAL) {
+            return corretoraDeriv;
+        }
         if (simbolo.equalsIgnoreCase(propriedades.simbolo())) {
             return corretora;
         }

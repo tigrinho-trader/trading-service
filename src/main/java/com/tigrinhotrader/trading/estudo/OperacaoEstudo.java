@@ -346,6 +346,13 @@ public class OperacaoEstudo {
         return resultadoLiquidoBrl;
     }
 
+    /** Resultado líquido como percentual do valor aplicado, para a animação/placar do jogo. */
+    public BigDecimal getResultadoPercentual() {
+        if (resultadoLiquidoBrl == null || nocionalBrl == null || nocionalBrl.signum() == 0) return null;
+        return resultadoLiquidoBrl.multiply(BigDecimal.valueOf(100))
+                .divide(nocionalBrl, 2, RoundingMode.HALF_UP);
+    }
+
     public Boolean getAcertouDirecao() {
         return acertouDirecao;
     }

@@ -22,7 +22,8 @@ public enum TipoFlecha {
     /** Especial como a bitcoin, mas so acerta o passaro ethereum (campos com o ativo). */
     ETH("eth", "Ethereum", 1, new BigDecimal("2")),
     /** Especial como a bitcoin, mas so acerta o passaro do ouro (campos com o ativo). */
-    OURO("ouro", "Ouro PAXG", 1, new BigDecimal("2"));
+    OURO("ouro", "Ouro PAXG", 1, new BigDecimal("2")),
+    V100("v100", "Volatilidade 100", 1, new BigDecimal("2"));
 
     private final String id;
     private final String nome;
@@ -52,6 +53,7 @@ public enum TipoFlecha {
             case BTC -> Optional.of(Passaro.BTC);
             case ETH -> Optional.of(Passaro.ETH);
             case OURO -> Optional.of(Passaro.OURO);
+            case V100 -> Optional.of(Passaro.V100);
             case WOOD -> Optional.empty();
         };
     }
