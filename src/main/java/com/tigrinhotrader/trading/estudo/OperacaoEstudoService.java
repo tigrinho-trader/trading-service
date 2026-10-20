@@ -113,13 +113,14 @@ public class OperacaoEstudoService {
     private final OrdemExecutadaPublisher publisher;
     private final TransactionTemplate transacao;
 
+    // corretoraEstudo: com duas Corretora no contexto (a padrao e a da Deriv), o Spring escolhe pelo nome do bean
     public OperacaoEstudoService(OperacaoEstudoRepository operacoes, SessaoFlechaRepository sessoes,
-                                 Corretora corretora, Agendador agendador, EstudoProperties propriedades,
+                                 Corretora corretoraEstudo, Agendador agendador, EstudoProperties propriedades,
                                  PrecoCache precos, Clock relogio, OrdemExecutadaPublisher publisher,
                                  PlatformTransactionManager transactionManager) {
         this.operacoes = operacoes;
         this.sessoes = sessoes;
-        this.corretora = corretora;
+        this.corretora = corretoraEstudo;
         this.agendador = agendador;
         this.propriedades = propriedades;
         this.precos = precos;
