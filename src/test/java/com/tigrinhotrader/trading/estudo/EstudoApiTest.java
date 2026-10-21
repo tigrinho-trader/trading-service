@@ -832,7 +832,7 @@ class EstudoApiTest {
     @Test
     void valorDaFlechaEAApostaEOTamanhoDaOperacao() throws Exception {
         String jogador = novoJogador();
-        // vilarejo: 5 + 1 bitcoin de 10 + 2 de 20 = 55
+        // vilarejo: 0,5 + 1 bitcoin de 10 + 2 de 20 = 50,5
         UUID sessao = sessoes.criar(jogador, "vilarejo", Map.of(), List.of(
                 new PedidoLote("btc", BigDecimal.TEN, 1), new PedidoLote("btc", new BigDecimal("20"), 2))).getId();
         corretora.aberturas.add(() -> exec("80000", "-8", "0.0001"));
@@ -869,9 +869,9 @@ class EstudoApiTest {
         consultar(jogador, dez).andExpect(jsonPath("$.moedasPagas").value(10))
                 .andExpect(jsonPath("$.sessao.ganhos").value(30.3));
 
-        // a flecha de 20 que sobrou volta ao encerrar: 20 - 0,2% = 19,96; resultado 30,30 + 19,96 - 55
+        // a flecha de 20 que sobrou volta ao encerrar: 20 - 0,2% = 19,96; resultado 30,30 + 19,96 - 50,5
         SessaoFlecha encerrada = sessoes.encerrar(jogador, sessao);
         assertThat(encerrada.getDevolucaoValor()).isEqualByComparingTo("19.96");
-        assertThat(encerrada.resultado()).isEqualByComparingTo("-4.74");
+        assertThat(encerrada.resultado()).isEqualByComparingTo("-0.24");
     }
 }

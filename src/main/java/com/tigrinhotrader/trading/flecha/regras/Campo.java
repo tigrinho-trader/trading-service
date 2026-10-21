@@ -16,13 +16,13 @@ import java.util.Set;
  * frontend ({@code src/regras.js}); o servidor e a fonte da verdade do dinheiro.
  */
 public enum Campo {
-    VILAREJO("vilarejo", "Campo do Vilarejo", 5, 1, 2, pesos("5", "3", "1", "0", "0.3"),
+    VILAREJO("vilarejo", "Campo do Vilarejo", new BigDecimal("0.5"), 1, 2, pesos("5", "3", "1", "0", "0.3"),
             mercado(Passaro.BTC)),
-    BOSQUE("bosque", "Bosque dos Arqueiros", 15, 3, 4, pesos("4", "2", "3", "1", "0.5"),
+    BOSQUE("bosque", "Bosque dos Arqueiros", new BigDecimal("1.5"), 3, 4, pesos("4", "2", "3", "1", "0.5"),
             mercado(Passaro.BTC, Passaro.ETH)),
-    PICO("pico", "Pico das Águias", 40, 8, 10, pesos("3", "1", "3", "3", "0.8"),
+    PICO("pico", "Pico das Águias", new BigDecimal("4"), 8, 10, pesos("3", "1", "3", "3", "0.8"),
             mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100)),
-    RESERVA_REAL("reserva-real", "Reserva Real", 100, 20, 25, pesos("2", "1", "3", "4", "1.2"),
+    RESERVA_REAL("reserva-real", "Reserva Real", new BigDecimal("10"), 20, 25, pesos("2", "1", "3", "4", "1.2"),
             mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100));
 
     private final String slug;
@@ -33,11 +33,11 @@ public enum Campo {
     private final Map<Passaro, BigDecimal> pool;
     private final Set<Passaro> passarosMercado;
 
-    Campo(String slug, String nome, int entrada, int flechaBase, int mult, Map<Passaro, BigDecimal> pool,
+    Campo(String slug, String nome, BigDecimal entrada, int flechaBase, int mult, Map<Passaro, BigDecimal> pool,
           Set<Passaro> passarosMercado) {
         this.slug = slug;
         this.nome = nome;
-        this.entrada = BigDecimal.valueOf(entrada);
+        this.entrada = entrada;
         this.flechaBase = flechaBase;
         this.mult = mult;
         this.pool = pool;

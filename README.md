@@ -71,14 +71,14 @@ encerradaEm }`. `mercado` sao os lotes de flechas de mercado restantes, por flec
 nao usadas ao encerrar: `{"quantidade":3,"valorBruto":30.00,"taxa":0.06,"valorDevolvido":29.94}` (zeros antes de
 encerrar ou sem sobra).
 
-Tabelas:
+Tabelas (entrada em moedas; 1 moeda = R$ 1, o mesmo valor em reais das entradas antigas de 5/15/40/100 a R$ 0,10):
 
 | Campo (`slug`) | Entrada | Flecha base | Mult | Pesos red/big/yellow/blue/gold | Passaros de mercado |
 |---|---|---|---|---|---|
-| `vilarejo` | 5 | 1 | 2 | 5 / 3 / 1 / 0 / 0,3 | `btc` |
-| `bosque` | 15 | 3 | 4 | 4 / 2 / 3 / 1 / 0,5 | `btc`, `eth` |
-| `pico` | 40 | 8 | 10 | 3 / 1 / 3 / 3 / 0,8 | `btc`, `eth`, `ouro`, `v100` |
-| `reserva-real` | 100 | 20 | 25 | 2 / 1 / 3 / 4 / 1,2 | `btc`, `eth`, `ouro`, `v100` |
+| `vilarejo` | 0,5 | 1 | 2 | 5 / 3 / 1 / 0 / 0,3 | `btc` |
+| `bosque` | 1,5 | 3 | 4 | 4 / 2 / 3 / 1 / 0,5 | `btc`, `eth` |
+| `pico` | 4 | 8 | 10 | 3 / 1 / 3 / 3 / 0,8 | `btc`, `eth`, `ouro`, `v100` |
+| `reserva-real` | 10 | 20 | 25 | 2 / 1 / 3 / 4 / 1,2 | `btc`, `eth`, `ouro`, `v100` |
 
 Passaros: `red`, `big`, `yellow`, `blue` e `gold` valem 0 moedas (o tiro so conta o acerto). `btc`, `eth` e `ouro`
 sao os passaros de mercado: ficam fora do sorteio e voam conforme a cotacao do ativo (BTC, ETH e ouro PAXG), so nos

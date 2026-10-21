@@ -104,10 +104,10 @@ class CatalogoFlechaTest {
     void tabelaDosCampos() {
         assertThat(Campo.values()).extracting(Campo::slug)
                 .containsExactly("vilarejo", "bosque", "pico", "reserva-real");
-        // a entrada continua cobrada
+        // a entrada continua cobrada: em moedas de R$ 1, o mesmo valor em reais de antes (5/15/40/100 a R$ 0,10)
         assertThat(Campo.values()).extracting(Campo::entrada)
                 .usingElementComparator(BigDecimal::compareTo)
-                .containsExactly(new BigDecimal("5"), new BigDecimal("15"), new BigDecimal("40"), new BigDecimal("100"));
+                .containsExactly(new BigDecimal("0.5"), new BigDecimal("1.5"), new BigDecimal("4"), new BigDecimal("10"));
         assertThat(Campo.values()).extracting(Campo::flechaBase).containsExactly(1, 3, 8, 20);
         assertThat(Campo.values()).extracting(Campo::mult).containsExactly(2, 4, 10, 25);
         assertThat(Campo.PICO.nome()).isEqualTo("Pico das Águias");

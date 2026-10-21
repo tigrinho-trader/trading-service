@@ -24,7 +24,8 @@ class SessaoFlechaTest {
 
     @Test
     void custoDeAberturaEEntradaMaisFlechas() {
-        // 10 madeira (gratis) + 1 bitcoin sem valor (cliente antigo: nivel 1, 10 moedas) no vilarejo, mais a entrada 5
+        // 10 madeira (gratis) + 1 bitcoin sem valor (cliente antigo: nivel 1, 10 moedas) no vilarejo, mais a entrada
+        // 0,5
         Aljava pedido = Aljava.de(Map.of(TipoFlecha.WOOD, 10, TipoFlecha.BTC, 1));
         assertThat(pedido.total()).isEqualTo(11);
         // o custo da aljava so conta as comuns: as de mercado custam o valor de cada lote
@@ -32,13 +33,13 @@ class SessaoFlechaTest {
         assertThat(SessaoFlecha.lotesPadrao(pedido.deMercado()))
                 .containsExactly(new LoteFlecha(TipoFlecha.BTC, new BigDecimal("10"), 1));
         assertThat(SessaoFlecha.custoAbertura(Campo.VILAREJO, pedido.comuns(),
-                SessaoFlecha.lotesPadrao(pedido.deMercado()))).isEqualByComparingTo("15");
+                SessaoFlecha.lotesPadrao(pedido.deMercado()))).isEqualByComparingTo("10.5");
         // so madeira: so a entrada
         assertThat(SessaoFlecha.custoAbertura(Campo.PICO, Aljava.de(Map.of(TipoFlecha.WOOD, 40)), List.of()))
-                .isEqualByComparingTo("40");
+                .isEqualByComparingTo("4");
 
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.VILAREJO, pedido, agora);
-        assertThat(s.getCusto()).isEqualByComparingTo("15").hasScaleOf(2);
+        assertThat(s.getCusto()).isEqualByComparingTo("10.50").hasScaleOf(2);
         assertThat(s.getGanhos()).isEqualByComparingTo("0");
         assertThat(s.isAberta()).isTrue();
         assertThat(s.getStatus()).isEqualTo(StatusSessao.ABERTA);
@@ -65,7 +66,7 @@ class SessaoFlechaTest {
         assertThat(s.registrarTiro(TipoFlecha.WOOD, List.of(), depois.plusSeconds(1))).isZero();
 
         assertThat(s.getGanhos()).isEqualByComparingTo("0");
-        assertThat(s.getCusto()).isEqualByComparingTo("100");
+        assertThat(s.getCusto()).isEqualByComparingTo("10");
         assertThat(s.getAcertos()).isEqualTo(2);
         assertThat(s.getRestantes().get(TipoFlecha.WOOD)).isZero();
         assertThat(s.getDisparadas().get(TipoFlecha.WOOD)).isEqualTo(2);
@@ -79,7 +80,7 @@ class SessaoFlechaTest {
     void compraSomaAoCustoEAsFlechas() {
         SessaoFlecha s = sessao(Campo.BOSQUE, Map.of(TipoFlecha.WOOD, 1));
         // so a entrada: a madeira e gratis
-        assertThat(s.getCusto()).isEqualByComparingTo("15");
+        assertThat(s.getCusto()).isEqualByComparingTo("1.5");
 
         assertThat(s.comprar(TipoFlecha.WOOD, 3, agora.plusSeconds(1))).isEqualByComparingTo("0");
         // sem valor: nivel 1 (10 moedas cada); com valor: o lote daquele valor
@@ -91,7 +92,7 @@ class SessaoFlechaTest {
         // o valor e ignorado na madeira
         assertThat(s.comprar(TipoFlecha.WOOD, 1, new BigDecimal("99"), agora.plusSeconds(7))).isEqualByComparingTo("0");
 
-        assertThat(s.getCusto()).isEqualByComparingTo("80.50");
+        assertThat(s.getCusto()).isEqualByComparingTo("67.00");
         assertThat(s.getCompradas().get(TipoFlecha.WOOD)).isEqualTo(5);
         assertThat(s.getCompradas().get(TipoFlecha.ETH)).isEqualTo(5);
         assertThat(s.getRestantes().get(TipoFlecha.ETH)).isEqualTo(5);
@@ -106,18 +107,18 @@ class SessaoFlechaTest {
         // so treino com madeira: acertar passaros nao paga, perde a entrada
         SessaoFlecha perdeu = sessao(Campo.VILAREJO, Map.of(TipoFlecha.WOOD, 1));
         perdeu.registrarTiro(TipoFlecha.WOOD, List.of(Passaro.RED, Passaro.GOLD), agora);
-        assertThat(perdeu.resultado()).isEqualByComparingTo("-5");
+        assertThat(perdeu.resultado()).isEqualByComparingTo("-0.5");
         assertThat(perdeu.resultadoFinal()).isEqualTo("PERDEU");
 
-        // so a aposta de mercado rende: custo 5 + 10, a operacao lucrou R$ 10,30 e pagou 20,30
+        // so a aposta de mercado rende: custo 0,5 + 10, a operacao lucrou R$ 10,30 e pagou 20,30
         SessaoFlecha ganhou = sessao(Campo.VILAREJO, Map.of(TipoFlecha.BTC, 1));
         ganhou.receberApostaDeMercado(new BigDecimal("20.30"), true);
-        assertThat(ganhou.resultado()).isEqualByComparingTo("5.30");
+        assertThat(ganhou.resultado()).isEqualByComparingTo("9.80");
         assertThat(ganhou.resultadoFinal()).isEqualTo("GANHOU");
 
-        // reserva real: 100 + 2 x 10 = 120; pagamentos de 110,31 e 9,69 devolvem o custo
+        // reserva real: 10 + 2 x 10 = 30; pagamentos de 20,31 e 9,69 devolvem o custo
         SessaoFlecha empatou = sessao(Campo.RESERVA_REAL, Map.of(TipoFlecha.BTC, 2));
-        empatou.receberApostaDeMercado(new BigDecimal("110.31"), true);
+        empatou.receberApostaDeMercado(new BigDecimal("20.31"), true);
         empatou.receberApostaDeMercado(new BigDecimal("9.69"), false);
         empatou.comprar(TipoFlecha.WOOD, 1, agora);
         assertThat(empatou.resultado()).isEqualByComparingTo("0");
@@ -226,8 +227,8 @@ class SessaoFlechaTest {
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.BOSQUE, Aljava.de(Map.of(TipoFlecha.WOOD, 1)),
                 guardadas, agora);
 
-        // so a entrada 15: a madeira e gratis
-        assertThat(s.getCusto()).isEqualByComparingTo("15");
+        // so a entrada 1,5: a madeira e gratis
+        assertThat(s.getCusto()).isEqualByComparingTo("1.5");
         assertThat(s.getCompradas().total()).isEqualTo(1);
         assertThat(s.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(4);
         assertThat(s.getRestantes().get(TipoFlecha.ETH)).isEqualTo(2);
@@ -238,14 +239,14 @@ class SessaoFlechaTest {
         // sem comprar nada: so a entrada
         SessaoFlecha soGuardadas = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO, Aljava.vazia(), guardadas,
                 agora);
-        assertThat(soGuardadas.getCusto()).isEqualByComparingTo("40");
+        assertThat(soGuardadas.getCusto()).isEqualByComparingTo("4");
     }
 
     @Test
     void flechaDeMercadoEGastaPeloEstudoEAApostaSomaAosGanhos() {
         SessaoFlecha s = sessao(Campo.VILAREJO, Map.of(TipoFlecha.BTC, 1, TipoFlecha.WOOD, 1));
-        // 5 + 0 (madeira) + 10
-        assertThat(s.getCusto()).isEqualByComparingTo("15");
+        // 0,5 + 0 (madeira) + 10
+        assertThat(s.getCusto()).isEqualByComparingTo("10.5");
 
         assertThat(s.usarFlechaDeMercado(TipoFlecha.BTC, agora.plusSeconds(3))).isEqualByComparingTo("10")
                 .hasScaleOf(2);
@@ -291,8 +292,8 @@ class SessaoFlechaTest {
         assertThat(s.getDevolucaoBruto()).isEqualByComparingTo("30.00").hasScaleOf(2);
         assertThat(s.getDevolucaoTaxa()).isEqualByComparingTo("0.06").hasScaleOf(2);
         assertThat(s.getDevolucaoValor()).isEqualByComparingTo("29.94");
-        // a devolucao entra no resultado: 0 + 29,94 - (15 + 30)
-        assertThat(s.resultado()).isEqualByComparingTo("-15.06");
+        // a devolucao entra no resultado: 0 + 29,94 - (1,5 + 30)
+        assertThat(s.resultado()).isEqualByComparingTo("-1.56");
         assertThat(s.getGanhos()).isEqualByComparingTo("0");
     }
 
@@ -305,8 +306,8 @@ class SessaoFlechaTest {
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO, Aljava.de(Map.of(TipoFlecha.WOOD, 2)),
                 mercado, Aljava.de(Map.of(TipoFlecha.BTC, 1)), agora);
 
-        // entrada 40 + 20 + 25,50 + 2 x 10; a bitcoin guardada ja foi paga
-        assertThat(s.getCusto()).isEqualByComparingTo("105.50");
+        // entrada 4 + 20 + 25,50 + 2 x 10; a bitcoin guardada ja foi paga
+        assertThat(s.getCusto()).isEqualByComparingTo("69.50");
         assertThat(s.getCompradas().get(TipoFlecha.BTC)).isEqualTo(3);
         assertThat(s.getRestantes().get(TipoFlecha.BTC)).isEqualTo(4);
         assertThat(s.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(2);
@@ -347,8 +348,8 @@ class SessaoFlechaTest {
         assertThat(s.getDevolucaoBruto()).isEqualByComparingTo("190.00");
         assertThat(s.getDevolucaoTaxa()).isEqualByComparingTo("0.38");
         assertThat(s.getDevolucaoValor()).isEqualByComparingTo("189.62");
-        // 0 de ganhos + 189,62 - (105,50 + 60)
-        assertThat(s.resultado()).isEqualByComparingTo("24.12");
+        // 0 de ganhos + 189,62 - (69,50 + 60)
+        assertThat(s.resultado()).isEqualByComparingTo("60.12");
     }
 
     @Test
@@ -372,7 +373,7 @@ class SessaoFlechaTest {
         assertThat(semSobra.getDevolucaoQuantidade()).isZero();
         assertThat(semSobra.getDevolucaoBruto()).isEqualByComparingTo("0").hasScaleOf(2);
         assertThat(semSobra.getDevolucaoTaxa()).isEqualByComparingTo("0");
-        assertThat(semSobra.resultado()).isEqualByComparingTo("-5");
+        assertThat(semSobra.resultado()).isEqualByComparingTo("-0.5");
     }
 
     @Test
