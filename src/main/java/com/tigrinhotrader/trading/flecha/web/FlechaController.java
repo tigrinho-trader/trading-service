@@ -1,6 +1,7 @@
 package com.tigrinhotrader.trading.flecha.web;
 
 import com.tigrinhotrader.trading.cliente.WalletClient;
+import com.tigrinhotrader.trading.flecha.servico.FlechaProperties;
 import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService;
 import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService.ResultadoTiro;
 import jakarta.validation.Valid;
@@ -29,14 +30,16 @@ public class FlechaController {
     }
 
     private final SessaoFlechaService service;
+    private final FlechaProperties propriedades;
 
-    public FlechaController(SessaoFlechaService service) {
+    public FlechaController(SessaoFlechaService service, FlechaProperties propriedades) {
         this.service = service;
+        this.propriedades = propriedades;
     }
 
     @GetMapping("/regras")
     public RegrasFlechaResponse regras() {
-        return RegrasFlechaResponse.atuais();
+        return RegrasFlechaResponse.atuais(propriedades.taxaDevolucao());
     }
 
     /** Flechas guardadas de rodadas anteriores: as comuns por campo e as de mercado, que valem em todos. */
@@ -49,7 +52,7 @@ public class FlechaController {
     @ResponseStatus(HttpStatus.CREATED)
     public SessaoResponse criar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId,
                                 @Valid @RequestBody FlechaRequests.NovaSessao pedido) {
-        return SessaoResponse.de(service.criar(usuarioId, pedido.campo(), pedido.flechas()));
+        return SessaoResponse.de(service.criar(usuarioId, pedido.campo(), pedido.flechas(), pedido.mercado()));
     }
 
     /** Sessao aberta do jogador (200) ou nenhuma (204). */
@@ -70,7 +73,8 @@ public class FlechaController {
     @PostMapping("/sessoes/{id}/flechas")
     public SessaoResponse comprar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId,
                                   @PathVariable UUID id, @Valid @RequestBody FlechaRequests.CompraFlechas compra) {
-        return SessaoResponse.de(service.comprar(usuarioId, id, compra.flecha(), compra.quantidade()));
+        return SessaoResponse.de(service.comprar(usuarioId, id, compra.flecha(), compra.quantidade(),
+                compra.valor()));
     }
 
     @PostMapping("/sessoes/{id}/encerrar")

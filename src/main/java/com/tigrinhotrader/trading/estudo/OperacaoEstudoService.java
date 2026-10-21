@@ -3,6 +3,7 @@ package com.tigrinhotrader.trading.estudo;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
 import com.tigrinhotrader.trading.flecha.regras.Campo;
+import com.tigrinhotrader.trading.flecha.regras.RegrasFlecha;
 import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaPublisher;
 import com.tigrinhotrader.trading.mensageria.SessaoFlechaEncerradaEvento;
@@ -31,16 +32,16 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Estudo da sabedoria das massas: cada flecha de mercado solta (bitcoin, ethereum ou ouro) vira uma operacao no
+ * Estudo da sabedoria das massas: cada flecha de mercado solta (bitcoin, ethereum, ouro ou V100) vira uma operacao no
  * ativo dela, na direcao que o jogador previu, aberta na hora e fechada {@code fechaApos} depois (o tempo de voo da
  * flecha). No modo REAL o dinheiro da operacao e do dono do jogo.
  *
- * <p>Para o jogador cada flecha de mercado e uma aposta de
- * {@link com.tigrinhotrader.trading.flecha.regras.RegrasFlecha#PRECO_FLECHA_MERCADO} moedas (paga na compra da
- * flecha): registrar a operacao gasta a flecha da sessao aberta e, quando a operacao termina, o servidor liquida a
- * aposta com o resultado liquido dela em moedas (ver {@link OperacaoEstudo#liquidar()}). Com a sessao ainda aberta
- * as moedas entram nos ganhos dela; com a sessao ja encerrada vao direto para a carteira num ordem.executada
- * proprio da operacao. O placar de acertos (direcao) continua binario.
+ * <p>Para o jogador cada flecha de mercado e uma aposta do valor que ele escolheu ao comprar a flecha (paga na
+ * compra): registrar a operacao gasta uma flecha daquele valor da sessao aberta e abre uma operacao do mesmo tamanho
+ * em reais ({@link RegrasFlecha#MOEDAS_POR_REAL} moeda por real). Quando a operacao termina o servidor liquida a
+ * aposta com o resultado liquido dela (ver {@link OperacaoEstudo#liquidar()}). Com a sessao ainda aberta as moedas
+ * entram nos ganhos dela; com a sessao ja encerrada vao direto para a carteira num ordem.executada proprio da
+ * operacao. O placar de acertos (direcao) continua binario.
  *
  * <p>So o ativo configurado ({@code estudo.simbolo}, BTCUSDT) usa a corretora configurada, que pode ser REAL; os
  * outros ativos sao sempre simulados com o preco real.
@@ -134,16 +135,17 @@ public class OperacaoEstudoService {
      * Na mesma transacao gasta a flecha do ativo da sessao aberta do jogador. Devolve a operacao ja salva (ABRINDO,
      * ou RECUSADA e liquidada se uma trava do modo REAL impediu) e a sessao atualizada.
      *
-     * @param simboloTexto par do ativo (BTCUSDT, ETHUSDT, PAXGUSDT); sem ele, BTCUSDT (clientes antigos)
+     * @param simboloTexto par do ativo (BTCUSDT, ETHUSDT, PAXGUSDT, 1HZ100V); sem ele, BTCUSDT (clientes antigos)
+     * @param valor valor da flecha gasta (o lote da aljava); sem ele, a de menor valor do ativo (clientes antigos)
      */
     public Registro registrar(String usuarioId, UUID sessaoId, String simboloTexto, String direcaoTexto,
-                              BigDecimal precoAgora, BigDecimal precoPrevisto) {
+                              BigDecimal precoAgora, BigDecimal precoPrevisto, BigDecimal valor) {
         Direcao direcao = Direcao.porNome(direcaoTexto)
                 .orElseThrow(() -> new RegraNegocioException("Direcao deve ser ALTA ou QUEDA"));
         AtivoEstudo ativo = simboloTexto == null ? AtivoEstudo.BTC : AtivoEstudo.porSimbolo(simboloTexto)
                 .orElseThrow(() -> new RegraNegocioException("Ativo nao suportado: " + simboloTexto));
         OperacaoEstudo salva = transacao.execute(status -> registrarNaSessao(usuarioId, sessaoId, ativo, direcao,
-                precoAgora, precoPrevisto));
+                precoAgora, precoPrevisto, valor));
         UUID id = salva.getId();
         if (salva.aguardaLiquidacao()) {
             liquidar(id);
@@ -157,7 +159,7 @@ public class OperacaoEstudoService {
     }
 
     private OperacaoEstudo registrarNaSessao(String usuarioId, UUID sessaoId, AtivoEstudo ativo, Direcao direcao,
-                                             BigDecimal precoAgora, BigDecimal precoPrevisto) {
+                                             BigDecimal precoAgora, BigDecimal precoPrevisto, BigDecimal valor) {
         SessaoFlecha sessao = sessoes.findByIdAndUsuarioId(sessaoId, usuarioId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Sessao nao encontrada"));
         if (!sessao.isAberta()) {
@@ -172,6 +174,10 @@ public class OperacaoEstudoService {
         if (sessao.getRestantes().get(flecha) < 1) {
             throw new RegraNegocioException("Sem flechas " + flecha.nome() + " na aljava");
         }
+        if (valor != null && !sessao.temFlechaDeMercado(flecha, valor)) {
+            throw new RegraNegocioException("Sem flechas " + flecha.nome() + " de " + valor.toPlainString()
+                    + " moedas na aljava");
+        }
         Instant agora = relogio.instant();
         Instant limite = agora.minus(propriedades.intervaloPorJogador());
         Optional<OperacaoEstudo> ultima = operacoes.findFirstByUsuarioIdOrderByCriadaEmDesc(usuarioId);
@@ -179,11 +185,14 @@ public class OperacaoEstudoService {
             throw new RitmoExcedidoException("Uma operacao por vez: espere "
                     + propriedades.intervaloPorJogador().toMillis() + " ms entre flechas de mercado");
         }
-        sessao.usarFlechaDeMercado(flecha, agora);
+        BigDecimal valorFlecha = sessao.usarFlechaDeMercado(flecha, valor, agora);
         sessoes.save(sessao);
         ModoEstudo modo = corretoraDe(ativo.simbolo()).modo();
+        // a operacao tem o tamanho da flecha: valor em moedas / moedas por real
+        BigDecimal nocional = valorFlecha.divide(BigDecimal.valueOf(RegrasFlecha.MOEDAS_POR_REAL), 2,
+                RoundingMode.HALF_UP);
         OperacaoEstudo operacao = OperacaoEstudo.nova(usuarioId, sessaoId, ativo.simbolo(), direcao,
-                TipoPrevisao.BINARIA, modo, propriedades.nocionalBrl(), precoAgora, precoPrevisto, agora);
+                TipoPrevisao.BINARIA, modo, nocional, precoAgora, precoPrevisto, agora);
         Optional<String> trava = modo == ModoEstudo.REAL ? travaDoModoReal(agora) : Optional.empty();
         trava.ifPresent(motivo -> operacao.recusar(motivo, agora));
         return operacoes.save(operacao);
@@ -392,7 +401,7 @@ public class OperacaoEstudoService {
             default -> "EMPATOU";
         };
         return new SessaoFlechaEncerradaEvento(o.referenciaPagamento(), o.getUsuarioId(), o.getSimbolo(),
-                SessaoFlechaEncerradaEvento.TIPO_FLECHA_MERCADO, BigDecimal.valueOf(o.getApostaMoedas()),
+                SessaoFlechaEncerradaEvento.TIPO_FLECHA_MERCADO, o.getApostaMoedas(),
                 resultado, pagas, agora, pagas, o.acertouAposta() ? 1 : 0);
     }
 

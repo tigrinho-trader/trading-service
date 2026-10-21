@@ -3,6 +3,7 @@ package com.tigrinhotrader.trading.flecha.servico;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -15,11 +16,13 @@ import com.tigrinhotrader.trading.dominio.OrdemRepository;
 import com.tigrinhotrader.trading.flecha.dominio.Aljava;
 import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardada;
 import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardadaRepository;
+import com.tigrinhotrader.trading.flecha.dominio.LoteFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
 import com.tigrinhotrader.trading.flecha.dominio.StatusSessao;
 import com.tigrinhotrader.trading.flecha.regras.Campo;
 import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
+import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService.PedidoLote;
 import com.tigrinhotrader.trading.mensageria.OrdemExecutadaPublisher;
 import com.tigrinhotrader.trading.mensageria.SessaoFlechaEncerradaEvento;
 import com.tigrinhotrader.trading.servico.ConflitoException;
@@ -91,7 +94,8 @@ class SessaoFlechaServiceTest {
         when(repositorio.saveAndFlush(any(SessaoFlecha.class))).thenAnswer(inv -> inv.getArgument(0));
         when(wallet.saldo("u1")).thenReturn(new BigDecimal("1000"));
         service = new SessaoFlechaService(repositorio, aljavas, new SaldoDisponivel(wallet, ordens, repositorio),
-                publisher, new FlechaProperties(null, null), new TransacaoFalsa(), Clock.fixed(agora, ZoneOffset.UTC));
+                publisher, new FlechaProperties(null, null, null), new TransacaoFalsa(),
+                Clock.fixed(agora, ZoneOffset.UTC));
     }
 
     private SessaoFlecha aberta(Instant atividade) {
@@ -104,18 +108,22 @@ class SessaoFlechaServiceTest {
 
     @Test
     void propriedadesTemPadroes() {
-        FlechaProperties padrao = new FlechaProperties(null, null);
+        FlechaProperties padrao = new FlechaProperties(null, null, null);
         assertThat(padrao.expiraApos()).isEqualTo(Duration.ofMinutes(10));
         assertThat(padrao.intervaloMinimoTiro()).isEqualTo(Duration.ofMillis(150));
-        assertThat(new FlechaProperties(Duration.ofMinutes(1), Duration.ZERO).expiraApos())
-                .isEqualTo(Duration.ofMinutes(1));
+        // 0,1% em cada ponta da conversao real -> dolar -> real
+        assertThat(padrao.taxaDevolucao()).isEqualByComparingTo("0.002");
+        FlechaProperties outra = new FlechaProperties(Duration.ofMinutes(1), Duration.ZERO, new BigDecimal("0.01"));
+        assertThat(outra.expiraApos()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(outra.taxaDevolucao()).isEqualByComparingTo("0.01");
     }
 
     @Test
     void criaCobrandoEntradaMaisFlechas() {
-        // 15 + 10 madeira (gratis) + 1 ethereum (100); ferro com 0 no pedido nao atrapalha
+        // 15 + 10 madeira (gratis) + 1 ethereum sem valor (cliente antigo: 10); ferro com 0 no pedido nao atrapalha
         SessaoFlecha s = service.criar("u1", "bosque", Map.of("wood", 10, "eth", 1, "iron", 0));
-        assertThat(s.getCusto()).isEqualByComparingTo("115");
+        assertThat(s.getCusto()).isEqualByComparingTo("25");
+        assertThat(s.getLotesMercado()).containsExactly(new LoteFlecha(TipoFlecha.ETH, BigDecimal.TEN, 1));
         assertThat(s.getRestantes().total()).isEqualTo(11);
         verify(wallet).saldo("u1");
     }
@@ -129,7 +137,7 @@ class SessaoFlechaServiceTest {
                             + "as flechas de mercado");
         }
         SessaoFlecha s = aberta(agora);
-        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "diamond", 1))
+        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "diamond", 1, null))
                 .isInstanceOf(PedidoInvalidoException.class);
         assertThatThrownBy(() -> service.disparar("u1", s.getId(), "iron", List.of()))
                 .isInstanceOf(PedidoInvalidoException.class);
@@ -209,7 +217,7 @@ class SessaoFlechaServiceTest {
         SessaoFlecha s = aberta(agora);
         when(wallet.saldo("u1")).thenThrow(new ServicoIndisponivelException("wallet fora"));
 
-        SessaoFlecha depois = service.comprar("u1", s.getId(), "wood", 20);
+        SessaoFlecha depois = service.comprar("u1", s.getId(), "wood", 20, new BigDecimal("50"));
 
         assertThat(depois.getCusto()).isEqualByComparingTo("5");
         assertThat(depois.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(21);
@@ -224,14 +232,14 @@ class SessaoFlechaServiceTest {
         assertThatThrownBy(() -> service.criar("u1", "bosque", Map.of("wood", 1, "ouro", 1)))
                 .hasMessage("Flechas Ouro PAXG nao sao vendidas no Bosque dos Arqueiros");
         SessaoFlecha s = aberta(agora);
-        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "ouro", 1))
+        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "ouro", 1, BigDecimal.TEN))
                 .hasMessage("Flechas Ouro PAXG nao sao vendidas no Campo do Vilarejo");
         verify(wallet, never()).saldo(any());
 
-        // a bitcoin vale em todo campo; no pico tem os tres ativos
-        assertThat(service.comprar("u1", s.getId(), "btc", 1).getCusto()).isEqualByComparingTo("105");
-        SessaoFlecha pico = service.criar("u1", "pico", Map.of("btc", 1, "eth", 1, "ouro", 1));
-        assertThat(pico.getCusto()).isEqualByComparingTo("340");
+        // a bitcoin vale em todo campo; no pico tem os quatro ativos
+        assertThat(service.comprar("u1", s.getId(), "btc", 1, BigDecimal.TEN).getCusto()).isEqualByComparingTo("15");
+        SessaoFlecha pico = service.criar("u1", "pico", Map.of("btc", 1, "eth", 1, "ouro", 1, "v100", 1));
+        assertThat(pico.getCusto()).isEqualByComparingTo("80");
     }
 
     @Test
@@ -311,7 +319,7 @@ class SessaoFlechaServiceTest {
     }
 
     @Test
-    void encerrarGuardaAsComunsNoCampoEAsDeMercadoParaTodos() {
+    void encerrarGuardaAsComunsNoCampoEDevolveAsDeMercadoComATaxa() {
         // sessao aberta antes de o ferro sair do jogo: o ferro que sobrou vai para a guarda, para o reembolso
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO,
                 Aljava.de(Map.of(TipoFlecha.WOOD, 2, TipoFlecha.OURO, 1)), Aljava.antigas(1, 0, 0), agora);
@@ -322,12 +330,20 @@ class SessaoFlechaServiceTest {
 
         assertThat(doPico.getFlechas().get(TipoFlecha.WOOD)).isEqualTo(3);
         assertThat(doPico.getFlechas().antigas()).isEqualTo(1);
+        // as de mercado nao vao mais para a guarda
         ArgumentCaptor<AljavaGuardada> salvas = ArgumentCaptor.forClass(AljavaGuardada.class);
-        verify(aljavas, times(2)).save(salvas.capture());
-        assertThat(salvas.getAllValues()).extracting(AljavaGuardada::getEscopo)
-                .containsExactly("pico", AljavaGuardada.MERCADO);
-        assertThat(salvas.getAllValues().get(1).getFlechas().get(TipoFlecha.OURO)).isEqualTo(1);
+        verify(aljavas, times(1)).save(salvas.capture());
+        assertThat(salvas.getAllValues()).extracting(AljavaGuardada::getEscopo).containsExactly("pico");
         assertThat(s.getRestantes().total()).isZero();
+        // a flecha de ouro de 10 volta com a taxa padrao (0,2%): 9,98, somada ao resultado
+        assertThat(s.getDevolucaoQuantidade()).isEqualTo(1);
+        assertThat(s.getDevolucaoValor()).isEqualByComparingTo("9.98");
+        ArgumentCaptor<SessaoFlechaEncerradaEvento> evento = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);
+        verify(publisher).publicarSessaoFlecha(evento.capture());
+        // custo 40 + 10; resultado = 0 + 9,98 - 50
+        assertThat(evento.getValue().valor()).isEqualByComparingTo("50");
+        assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("-40.02");
+        assertThat(evento.getValue().resultado()).isEqualTo("PERDEU");
     }
 
     @Test
@@ -369,14 +385,14 @@ class SessaoFlechaServiceTest {
 
     @Test
     void resultadoZeroTambemVaiParaACarteiraComoEmpate() {
-        // reserva real: 100 + 2 bitcoin (200); as apostas pagaram 200,60 (+R$ 10,06) + 99,40 (-R$ 0,06)
+        // reserva real: 100 + 2 bitcoin de 10 (20); as apostas pagaram 110,60 e 9,40
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.RESERVA_REAL,
                 Aljava.de(Map.of(TipoFlecha.BTC, 2)), agora);
         when(repositorio.findByIdAndUsuarioId(s.getId(), "u1")).thenReturn(Optional.of(s));
         s.usarFlechaDeMercado(TipoFlecha.BTC, agora);
         s.usarFlechaDeMercado(TipoFlecha.BTC, agora);
-        s.receberApostaDeMercado(new BigDecimal("200.60"), true);
-        s.receberApostaDeMercado(new BigDecimal("99.40"), false);
+        s.receberApostaDeMercado(new BigDecimal("110.60"), true);
+        s.receberApostaDeMercado(new BigDecimal("9.40"), false);
 
         SessaoFlecha encerrada = service.encerrar("u1", s.getId());
 
@@ -386,8 +402,8 @@ class SessaoFlechaServiceTest {
         // a carteira aplica 0 e registra empate (EMPATE_RODADA), sem mexer no saldo
         assertThat(evento.getValue().resultado()).isEqualTo("EMPATOU");
         assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("0");
-        assertThat(evento.getValue().valor()).isEqualByComparingTo("300");
-        assertThat(evento.getValue().ganhos()).isEqualByComparingTo("300");
+        assertThat(evento.getValue().valor()).isEqualByComparingTo("120");
+        assertThat(evento.getValue().ganhos()).isEqualByComparingTo("120");
         assertThat(evento.getValue().acertos()).isEqualTo(1);
         verify(aljavas, never()).save(any());
     }
@@ -448,6 +464,109 @@ class SessaoFlechaServiceTest {
         assertThat(voltou.isAberta()).isTrue();
         assertThat(boa.isAberta()).isFalse();
         verify(publisher, times(2)).publicarSessaoFlecha(any());
+    }
+
+    @Test
+    void abreComLotesDeMercadoDeValorEscolhido() {
+        // pico: 40 + 3 bitcoin de 10 + 1 ethereum de 25,50 + 2 V100 de 30 = 155,50; madeira gratis
+        SessaoFlecha s = service.criar("u1", "pico", Map.of("wood", 2, "btc", 1), List.of(
+                new PedidoLote("btc", new BigDecimal("10"), 2),
+                new PedidoLote("eth", new BigDecimal("25.5"), 1),
+                new PedidoLote("v100", new BigDecimal("30.00"), 2),
+                new PedidoLote("ouro", new BigDecimal("20"), 0)));
+
+        assertThat(s.getCusto()).isEqualByComparingTo("155.50");
+        // a bitcoin de cliente antigo (em flechas) entra no lote de 10 junto com as do mercado
+        assertThat(s.getLotesMercado()).containsExactly(
+                new LoteFlecha(TipoFlecha.BTC, BigDecimal.TEN, 3),
+                new LoteFlecha(TipoFlecha.ETH, new BigDecimal("25.50"), 1),
+                new LoteFlecha(TipoFlecha.V100, new BigDecimal("30"), 2));
+        assertThat(s.getRestantes().total()).isEqualTo(8);
+        assertThat(s.getCompradas().get(TipoFlecha.OURO)).isZero();
+        verify(wallet).saldo("u1");
+
+        // sem teto: um valor grande so esbarra no saldo (1000)
+        assertThatThrownBy(() -> service.criar("u1", "vilarejo", Map.of(),
+                List.of(new PedidoLote("btc", new BigDecimal("999.99"), 1))))
+                .isInstanceOf(RegraNegocioException.class).hasMessageStartingWith("Saldo insuficiente");
+        when(wallet.saldo("u3")).thenReturn(new BigDecimal("1000000"));
+        assertThat(service.criar("u3", "vilarejo", Map.of(), List.of(new PedidoLote("btc", new BigDecimal("12345.67"), 2)))
+                .getCusto()).isEqualByComparingTo("24696.34");
+    }
+
+    @Test
+    void valorDaFlechaDeMercadoTemMinimoECasas() {
+        Map<PedidoLote, String> invalidos = new java.util.LinkedHashMap<>();
+        invalidos.put(new PedidoLote("btc", null, 1), "Informe o valor das flechas Bitcoin");
+        invalidos.put(new PedidoLote("btc", new BigDecimal("0.99"), 1),
+                "O valor de uma flecha Bitcoin e de pelo menos 1 moeda, com ate 2 casas: 0.99");
+        invalidos.put(new PedidoLote("btc", new BigDecimal("10.005"), 1),
+                "O valor de uma flecha Bitcoin e de pelo menos 1 moeda, com ate 2 casas: 10.005");
+        invalidos.put(new PedidoLote("btc", BigDecimal.TEN, null), "Quantidade invalida de flechas btc");
+        invalidos.put(new PedidoLote("btc", BigDecimal.TEN, -1), "Quantidade invalida de flechas btc");
+        invalidos.put(new PedidoLote("wood", BigDecimal.TEN, 1), "Flechas Madeira nao tem valor: peca-as em flechas");
+        invalidos.put(new PedidoLote("laser", BigDecimal.TEN, 1), "Flecha desconhecida: laser");
+        invalidos.put(new PedidoLote(null, BigDecimal.TEN, 1), "Flecha desconhecida: null");
+        invalidos.put(new PedidoLote("eth", BigDecimal.TEN, 1), "Flechas Ethereum nao sao vendidas no Campo do Vilarejo");
+        invalidos.put(new PedidoLote("btc", BigDecimal.TEN, 41), "Escolha de 1 a 40 flechas");
+        invalidos.forEach((lote, mensagem) -> assertThatThrownBy(() -> service.criar("u1", "vilarejo",
+                Map.of("wood", 1), List.of(lote))).as("lote %s", lote)
+                .isInstanceOf(RegraNegocioException.class).hasMessage(mensagem));
+        // madeira + lotes passando de 40 tambem
+        assertThatThrownBy(() -> service.criar("u1", "vilarejo", Map.of("wood", 30),
+                List.of(new PedidoLote("btc", BigDecimal.ONE, 11)))).hasMessage("Escolha de 1 a 40 flechas");
+        verify(wallet, never()).saldo(any());
+
+        // 1 moeda e 2 casas valem; zeros a direita nao contam como casas
+        SessaoFlecha s = service.criar("u1", "vilarejo", Map.of(), List.of(
+                new PedidoLote("btc", new BigDecimal("1"), 1), new PedidoLote("btc", new BigDecimal("1.230"), 1)));
+        assertThat(s.getCusto()).isEqualByComparingTo("7.23");
+        assertThat(s.getLotesMercado()).extracting(LoteFlecha::valor)
+                .containsExactly(new BigDecimal("1.00"), new BigDecimal("1.23"));
+    }
+
+    @Test
+    void compraDeMercadoNoMeioDaSessaoPedeOValor() {
+        SessaoFlecha s = aberta(agora);
+        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "btc", 2, null))
+                .isInstanceOf(RegraNegocioException.class).hasMessage("Informe o valor das flechas Bitcoin");
+        assertThatThrownBy(() -> service.comprar("u1", s.getId(), "btc", 2, new BigDecimal("0.5")))
+                .isInstanceOf(RegraNegocioException.class);
+        verify(wallet, never()).saldo(any());
+
+        SessaoFlecha depois = service.comprar("u1", s.getId(), "btc", 2, new BigDecimal("20"));
+
+        // 5 + 2 x 20
+        assertThat(depois.getCusto()).isEqualByComparingTo("45");
+        assertThat(depois.getLotesMercado()).containsExactly(new LoteFlecha(TipoFlecha.BTC, new BigDecimal("20"), 2));
+        verify(wallet).saldo("u1");
+    }
+
+    @Test
+    void flechasDeMercadoGuardadasDoPrecoAntigoEntramComoLotesDeCemESaoDevolvidas() {
+        AljavaGuardada deMercado = guardada(AljavaGuardada.MERCADO, Map.of(TipoFlecha.BTC, 2));
+
+        SessaoFlecha s = service.criar("u1", "vilarejo", Map.of(), List.of(new PedidoLote("btc", BigDecimal.TEN, 1)));
+
+        assertThat(s.getCusto()).isEqualByComparingTo("15");
+        assertThat(s.getLotesMercado()).containsExactly(
+                new LoteFlecha(TipoFlecha.BTC, BigDecimal.TEN, 1),
+                new LoteFlecha(TipoFlecha.BTC, new BigDecimal("100"), 2));
+        assertThat(deMercado.getFlechas().total()).isZero();
+        when(repositorio.findByIdAndUsuarioId(s.getId(), "u1")).thenReturn(Optional.of(s));
+        clearInvocations(aljavas);
+
+        service.encerrar("u1", s.getId());
+
+        // 10 + 2 x 100 = 210, menos 0,2% = 209,58; nada volta para a guarda de mercado
+        assertThat(s.getDevolucaoBruto()).isEqualByComparingTo("210");
+        assertThat(s.getDevolucaoTaxa()).isEqualByComparingTo("0.42");
+        assertThat(s.getDevolucaoValor()).isEqualByComparingTo("209.58");
+        verify(aljavas, never()).save(any());
+        ArgumentCaptor<SessaoFlechaEncerradaEvento> evento = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);
+        verify(publisher).publicarSessaoFlecha(evento.capture());
+        assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("194.58");
+        assertThat(evento.getValue().resultado()).isEqualTo("GANHOU");
     }
 
     @Test

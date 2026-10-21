@@ -2,6 +2,7 @@ package com.tigrinhotrader.trading.flecha.dominio;
 
 import com.tigrinhotrader.trading.flecha.regras.Campo;
 import com.tigrinhotrader.trading.flecha.regras.Passaro;
+import com.tigrinhotrader.trading.flecha.regras.RegrasFlecha;
 import com.tigrinhotrader.trading.flecha.regras.TipoFlecha;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
@@ -17,15 +18,22 @@ import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Uma partida do Flecha Certeira: o jogador paga entrada + flechas ao abrir (e ao comprar mais), cada tiro soma
  * as moedas dos passaros (hoje 0: so conta os acertos) e, ao encerrar, o resultado (ganhos - custo) vai para a
  * carteira pelo evento ordem.executada (resultado zero tambem: a carteira registra como empate). As flechas
- * guardadas de rodadas anteriores entram na aljava sem custo (ja foram pagas) e as que sobram voltam para a guarda.
- * Flechas de mercado nao sao disparadas aqui: o estudo gasta a flecha e soma o pagamento da aposta aos ganhos.
+ * guardadas de rodadas anteriores entram na aljava sem custo (ja foram pagas) e as comuns que sobram voltam para a
+ * guarda. Flechas de mercado nao sao disparadas aqui: o estudo gasta a flecha e soma o pagamento da aposta aos
+ * ganhos.
+ *
+ * <p>As flechas de mercado ficam em lotes por tipo e valor ({@link LotesMercado}, coluna {@code lotes_mercado});
+ * as aljavas {@code compradas/restantes/disparadas} continuam com os totais por tipo. As de mercado que sobram nao
+ * sao guardadas: ao encerrar voltam em moedas, valor x quantidade menos a taxa de devolucao, somadas ao resultado.
  */
 @Entity
 @Table(name = "sessoes_flecha", indexes = {
@@ -102,6 +110,22 @@ public class SessaoFlecha {
     })
     private Aljava disparadas;
 
+    /**
+     * Lotes das flechas de mercado restantes, em JSON. Default '[]': a coluna entra numa tabela que ja tem linhas;
+     * as flechas de mercado dessas linhas (sem lote) contam como lotes do valor antigo ({@link #lotes()}).
+     */
+    @Column(name = "lotes_mercado", columnDefinition = "varchar(4000) default '[]' not null")
+    private String lotesMercado;
+
+    // devolucao das flechas de mercado que sobraram ao encerrar (zeros antes de encerrar ou sem sobra); default 0
+    // porque as colunas entram numa tabela que ja tem linhas
+    @Column(name = "devolucao_quantidade", columnDefinition = "integer default 0 not null")
+    private int devolucaoQuantidade;
+    @Column(name = "devolucao_bruto", columnDefinition = "numeric(14,2) default 0 not null")
+    private BigDecimal devolucaoBruto;
+    @Column(name = "devolucao_taxa", columnDefinition = "numeric(14,2) default 0 not null")
+    private BigDecimal devolucaoTaxa;
+
     @Column(nullable = false)
     private int acertos;
 
@@ -119,35 +143,83 @@ public class SessaoFlecha {
         // JPA
     }
 
-    /** Abre a sessao cobrando entrada + flechas pedidas. */
+    /**
+     * Abre a sessao cobrando entrada + flechas pedidas; as de mercado do {@code pedido} viram lotes do valor padrao
+     * ({@link RegrasFlecha#VALOR_FLECHA_PADRAO}), como as de um cliente antigo.
+     */
     public SessaoFlecha(UUID id, String usuarioId, Campo campo, Aljava pedido, Instant agora) {
         this(id, usuarioId, campo, pedido, Aljava.vazia(), agora);
     }
 
-    /**
-     * Abre a sessao cobrando entrada + flechas pedidas; as {@code guardadas} (pagas em rodadas anteriores) entram na
-     * aljava sem custo e sem contar como compradas.
-     */
+    /** Igual, com as {@code guardadas} (pagas em rodadas anteriores) entrando na aljava sem custo. */
     public SessaoFlecha(UUID id, String usuarioId, Campo campo, Aljava pedido, Aljava guardadas, Instant agora) {
+        this(id, usuarioId, campo, pedido.comuns(), lotesPadrao(pedido.deMercado()), guardadas, agora);
+    }
+
+    /**
+     * Abre a sessao cobrando entrada + flechas comuns + valor x quantidade de cada lote de mercado. As
+     * {@code guardadas} (pagas em rodadas anteriores) entram na aljava sem custo e sem contar como compradas; as de
+     * mercado entre elas viram lotes do valor antigo ({@link RegrasFlecha#VALOR_FLECHA_ANTIGA}).
+     */
+    public SessaoFlecha(UUID id, String usuarioId, Campo campo, Aljava comuns, List<LoteFlecha> mercado,
+                        Aljava guardadas, Instant agora) {
         this.id = id;
         this.usuarioId = usuarioId;
         this.usuarioAberta = usuarioId;
         this.campo = campo.slug();
         this.status = StatusSessao.ABERTA;
-        this.custo = dinheiro(custoAbertura(campo, pedido));
+        this.custo = dinheiro(custoAbertura(campo, comuns, mercado));
         this.ganhos = dinheiro(BigDecimal.ZERO);
-        this.compradas = pedido.copia();
-        this.restantes = pedido.copia();
+        this.compradas = comuns.comuns();
+        LotesMercado lotes = new LotesMercado();
+        for (LoteFlecha lote : mercado) {
+            lotes.somar(lote.flecha(), lote.valor(), lote.quantidade());
+            compradas.somar(lote.flecha(), lote.quantidade());
+        }
+        this.restantes = compradas.copia();
         this.restantes.somarTudo(guardadas);
+        this.lotesMercado = lotes.json();
+        // as de mercado guardadas (sem lote) viram lotes do valor antigo
+        this.lotesMercado = lotes().json();
         this.disparadas = Aljava.vazia();
+        this.devolucaoBruto = dinheiro(BigDecimal.ZERO);
+        this.devolucaoTaxa = dinheiro(BigDecimal.ZERO);
         this.acertos = 0;
         this.criadaEm = agora;
         this.ultimaAtividadeEm = agora;
     }
 
-    /** Entrada do campo + preco das flechas do pedido. */
-    public static BigDecimal custoAbertura(Campo campo, Aljava pedido) {
-        return campo.entrada().add(pedido.custo(campo));
+    /** Entrada do campo + preco das flechas comuns + valor x quantidade dos lotes de mercado. */
+    public static BigDecimal custoAbertura(Campo campo, Aljava comuns, List<LoteFlecha> mercado) {
+        BigDecimal soma = campo.entrada().add(comuns.custo(campo));
+        for (LoteFlecha lote : mercado) {
+            soma = soma.add(lote.total());
+        }
+        return soma;
+    }
+
+    /** Lotes do valor padrao com as flechas de mercado de uma aljava (pedido de cliente antigo). */
+    public static List<LoteFlecha> lotesPadrao(Aljava mercado) {
+        List<LoteFlecha> lotes = new ArrayList<>();
+        for (TipoFlecha tipo : TipoFlecha.values()) {
+            if (tipo.deMercado() && mercado.get(tipo) > 0) {
+                lotes.add(new LoteFlecha(tipo, RegrasFlecha.VALOR_FLECHA_PADRAO, mercado.get(tipo)));
+            }
+        }
+        return lotes;
+    }
+
+    /**
+     * Os lotes gravados mais, para cada tipo de mercado com mais flechas restantes do que nos lotes (sessao aberta
+     * antes dos lotes, ou flechas guardadas do preco fixo antigo), um lote do valor antigo com a diferenca.
+     */
+    private LotesMercado lotes() {
+        LotesMercado lotes = LotesMercado.ler(lotesMercado);
+        for (TipoFlecha tipo : TipoFlecha.values()) {
+            int semLote = tipo.deMercado() ? restantes.get(tipo) - lotes.quantidade(tipo) : 0;
+            lotes.somar(tipo, RegrasFlecha.VALOR_FLECHA_ANTIGA, semLote);
+        }
+        return lotes;
     }
 
     /**
@@ -176,18 +248,39 @@ public class SessaoFlecha {
     }
 
     /**
-     * Gasta uma flecha de mercado na operacao do estudo (a aposta ja foi paga na compra da flecha).
+     * Gasta uma flecha de mercado do tipo e valor na operacao do estudo (a aposta ja foi paga na compra da flecha).
+     * Sem valor (cliente antigo) gasta a de menor valor do tipo.
      *
-     * @throws IllegalStateException se a sessao esta encerrada, a flecha nao e de mercado ou acabou
+     * @return o valor da flecha gasta (2 casas): a aposta e o tamanho da operacao
+     * @throws IllegalStateException se a sessao esta encerrada, a flecha nao e de mercado ou nao ha desse valor
      */
-    public void usarFlechaDeMercado(TipoFlecha flecha, Instant agora) {
+    public BigDecimal usarFlechaDeMercado(TipoFlecha flecha, BigDecimal valor, Instant agora) {
         exigirAberta();
-        if (!flecha.deMercado() || restantes.get(flecha) <= 0) {
-            throw new IllegalStateException("Sem flecha de mercado " + flecha.id());
+        LotesMercado lotes = lotes();
+        Optional<BigDecimal> escolhido = valor == null ? lotes.menorValor(flecha) : Optional.of(valor);
+        if (escolhido.isEmpty() || !lotes.tirar(flecha, escolhido.get())) {
+            throw new IllegalStateException("Sem flecha de mercado " + flecha.id() + " de " + valor);
         }
+        lotesMercado = lotes.json();
         restantes.somar(flecha, -1);
         disparadas.somar(flecha, 1);
         ultimaAtividadeEm = agora;
+        return dinheiro(escolhido.get());
+    }
+
+    /** Gasta a flecha de mercado de menor valor do tipo. */
+    public BigDecimal usarFlechaDeMercado(TipoFlecha flecha, Instant agora) {
+        return usarFlechaDeMercado(flecha, null, agora);
+    }
+
+    /** Ha flecha de mercado do tipo com este valor na aljava? */
+    public boolean temFlechaDeMercado(TipoFlecha flecha, BigDecimal valor) {
+        return lotes().tem(flecha, valor);
+    }
+
+    /** Lotes das flechas de mercado restantes, por tipo e depois por valor. */
+    public List<LoteFlecha> getLotesMercado() {
+        return lotes().lista();
     }
 
     /**
@@ -202,10 +295,25 @@ public class SessaoFlecha {
         }
     }
 
-    /** Compra mais flechas durante a sessao: soma ao custo e as compradas/restantes. */
-    public BigDecimal comprar(TipoFlecha flecha, int quantidade, Instant agora) {
+    /**
+     * Compra mais flechas durante a sessao: soma ao custo e as compradas/restantes. Flecha de mercado entra no lote
+     * do {@code valor} (sem valor, o padrao) e custa valor x quantidade; nas comuns o valor e ignorado.
+     *
+     * @return quanto a compra somou ao custo
+     */
+    public BigDecimal comprar(TipoFlecha flecha, int quantidade, BigDecimal valor, Instant agora) {
         exigirAberta();
-        BigDecimal extra = getCampo().custoFlecha(flecha).multiply(BigDecimal.valueOf(quantidade));
+        BigDecimal extra;
+        if (flecha.deMercado()) {
+            LoteFlecha lote = new LoteFlecha(flecha, valor == null ? RegrasFlecha.VALOR_FLECHA_PADRAO : valor,
+                    quantidade);
+            LotesMercado lotes = lotes();
+            lotes.somar(flecha, lote.valor(), quantidade);
+            lotesMercado = lotes.json();
+            extra = lote.total();
+        } else {
+            extra = getCampo().custoFlecha(flecha).multiply(BigDecimal.valueOf(quantidade));
+        }
         custo = dinheiro(custo.add(extra));
         compradas.somar(flecha, quantidade);
         restantes.somar(flecha, quantidade);
@@ -213,18 +321,36 @@ public class SessaoFlecha {
         return extra;
     }
 
+    /** Compra flechas comuns (ou de mercado do valor padrao). */
+    public BigDecimal comprar(TipoFlecha flecha, int quantidade, Instant agora) {
+        return comprar(flecha, quantidade, null, agora);
+    }
+
     /**
-     * Encerra a sessao e tira da aljava as flechas que sobraram (o servico guarda para a proxima rodada). Flechas
-     * antigas de uma sessao aberta antes de elas sairem do jogo tambem saem, para serem guardadas e reembolsadas.
+     * Encerra a sessao e tira da aljava as flechas que sobraram. As comuns (e as antigas de uma sessao aberta antes
+     * de elas sairem do jogo) voltam para o servico guardar; as de mercado viram a devolucao: valor x quantidade de
+     * cada lote menos {@code taxaDevolucao} (fracao, ex. 0.002), em centavos HALF_UP, somada ao resultado.
      *
-     * @return as flechas que sobraram
+     * @return as flechas comuns que sobraram
      */
-    public Aljava encerrar(Instant agora) {
+    public Aljava encerrar(Instant agora, BigDecimal taxaDevolucao) {
         exigirAberta();
+        LotesMercado lotes = lotes();
+        BigDecimal bruto = dinheiro(lotes.valorTotal());
+        BigDecimal devolvido = dinheiro(bruto.multiply(BigDecimal.ONE.subtract(taxaDevolucao)));
+        devolucaoQuantidade = lotes.quantidade();
+        devolucaoBruto = bruto;
+        devolucaoTaxa = bruto.subtract(devolvido);
+        lotesMercado = LotesMercado.VAZIO;
         status = StatusSessao.ENCERRADA;
         encerradaEm = agora;
         usuarioAberta = null;
-        return restantes.esvaziarTudo();
+        return restantes.esvaziarTudo().comuns();
+    }
+
+    /** Encerra sem taxa na devolucao das flechas de mercado. */
+    public Aljava encerrar(Instant agora) {
+        return encerrar(agora, BigDecimal.ZERO);
     }
 
     private void exigirAberta() {
@@ -233,9 +359,9 @@ public class SessaoFlecha {
         }
     }
 
-    /** Lucro (positivo) ou prejuizo (negativo) da sessao ate agora. */
+    /** Lucro (positivo) ou prejuizo (negativo) da sessao ate agora: ganhos + devolucao - custo. */
     public BigDecimal resultado() {
-        return ganhos.subtract(custo);
+        return ganhos.add(getDevolucaoValor()).subtract(custo);
     }
 
     /** GANHOU / PERDEU / EMPATOU, no mesmo vocabulario das ordens. */
@@ -289,6 +415,26 @@ public class SessaoFlecha {
 
     public Aljava getDisparadas() {
         return disparadas;
+    }
+
+    /** Flechas de mercado devolvidas ao encerrar. */
+    public int getDevolucaoQuantidade() {
+        return devolucaoQuantidade;
+    }
+
+    /** Valor x quantidade das flechas de mercado devolvidas, antes da taxa. */
+    public BigDecimal getDevolucaoBruto() {
+        return devolucaoBruto;
+    }
+
+    /** Taxa descontada da devolucao, em moedas. */
+    public BigDecimal getDevolucaoTaxa() {
+        return devolucaoTaxa;
+    }
+
+    /** O que voltou em moedas: bruto - taxa. */
+    public BigDecimal getDevolucaoValor() {
+        return devolucaoBruto.subtract(devolucaoTaxa);
     }
 
     public int getAcertos() {

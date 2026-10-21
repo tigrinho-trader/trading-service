@@ -16,9 +16,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Uma previsao de um jogador (uma flecha de mercado: bitcoin, ethereum ou ouro) e a operacao feita com ela. A flecha
- * e uma aposta de {@code apostaMoedas} moedas que o servidor liquida uma vez, quando a operacao termina, com o
- * resultado liquido da operacao (nunca com precos do cliente).
+ * Uma previsao de um jogador (uma flecha de mercado: bitcoin, ethereum, ouro ou V100) e a operacao feita com ela. A
+ * flecha e uma aposta de {@code apostaMoedas} moedas (o valor da flecha, igual ao tamanho da operacao em reais) que o
+ * servidor liquida uma vez, quando a operacao termina, com o resultado liquido da operacao (nunca com precos do
+ * cliente).
  */
 @Entity
 @Table(name = "operacoes_estudo", indexes = {
@@ -112,10 +113,12 @@ public class OperacaoEstudo {
     private BigDecimal resultadoBinarioBrl;
 
     /**
-     * Moedas apostadas com a flecha de mercado ({@link RegrasFlecha#PRECO_FLECHA_MERCADO}). Nulo em operacoes de
-     * antes da aposta: essas nao sao liquidadas.
+     * Moedas apostadas com a flecha de mercado: o valor da flecha, com centavos. Nulo em operacoes de antes da
+     * aposta: essas nao sao liquidadas. Era inteiro (100 fixo) antes de o jogador escolher o valor:
+     * {@code AjusteEsquema} converte a coluna antiga para numeric(14,2), sem mexer nos valores.
      */
-    private Integer apostaMoedas;
+    @Column(precision = 14, scale = 2)
+    private BigDecimal apostaMoedas;
     /**
      * Moedas pagas ao jogador pela aposta, com centavos; nulo ate liquidar. Era inteiro (200/100/0) antes de o
      * pagamento seguir o resultado liquido: {@code AjusteEsquema} converte a coluna antiga, sem mexer nos valores.
@@ -135,6 +138,10 @@ public class OperacaoEstudo {
         // JPA
     }
 
+    /**
+     * Operacao nova de {@code nocionalBrl} reais; a aposta e o mesmo valor em moedas
+     * ({@link RegrasFlecha#MOEDAS_POR_REAL} moeda por real).
+     */
     public static OperacaoEstudo nova(String usuarioId, UUID sessaoId, String simbolo, Direcao direcao,
                                       TipoPrevisao tipo, ModoEstudo modo, BigDecimal nocionalBrl,
                                       BigDecimal precoAgora, BigDecimal precoPrevisto, Instant agora) {
@@ -150,7 +157,7 @@ public class OperacaoEstudo {
         o.nocionalBrl = nocionalBrl;
         o.precoAgoraJogo = precoAgora;
         o.precoPrevistoJogo = precoPrevisto;
-        o.apostaMoedas = RegrasFlecha.PRECO_FLECHA_MERCADO;
+        o.apostaMoedas = nocionalBrl.multiply(MOEDAS_POR_REAL).setScale(2, RoundingMode.HALF_UP);
         o.criadaEm = agora;
         return o;
     }
@@ -200,10 +207,11 @@ public class OperacaoEstudo {
     }
 
     /**
-     * Liquida a aposta (uma vez so). FECHADA paga a aposta mais o resultado liquido da operacao (depois das taxas)
-     * em moedas: {@code apostaMoedas + MOEDAS_POR_REAL x resultadoLiquidoBrl}, arredondado em centavos (HALF_UP) e
-     * nunca menos que 0; vale para acerto e erro (ex.: -R$ 0,06 paga 99,40). Empate (preco parado) devolve a aposta
-     * inteira, mesmo com as taxas; RECUSADA ou FALHOU tambem devolve a aposta.
+     * Liquida a aposta (uma vez so). FECHADA com a direcao certa paga a aposta mais o resultado liquido da operacao
+     * (depois das taxas; na Deriv o lucro do contrato) em moedas: {@code apostaMoedas + MOEDAS_POR_REAL x
+     * resultadoLiquidoBrl}, arredondado em centavos (HALF_UP) e nunca menos que 0 (ex.: aposta 10 e +R$ 0,30 paga
+     * 10,30; se as taxas comem o lucro, -R$ 0,06 paga 9,94). Direcao errada perde a aposta (paga 0). Empate (preco
+     * parado) devolve a aposta inteira, mesmo com as taxas; RECUSADA ou FALHOU tambem devolve a aposta.
      *
      * @return moedas pagas ao jogador
      */
@@ -211,9 +219,16 @@ public class OperacaoEstudo {
         if (!aguardaLiquidacao()) {
             throw new IllegalStateException("Operacao " + id + " nao aguarda liquidacao");
         }
-        BigDecimal aposta = BigDecimal.valueOf(apostaMoedas);
-        boolean devolve = status != StatusOperacao.FECHADA || sinalAposta() == 0;
-        BigDecimal pagas = devolve ? aposta : aposta.add(resultadoLiquidoBrl.multiply(MOEDAS_POR_REAL));
+        BigDecimal pagas;
+        if (status != StatusOperacao.FECHADA) {
+            pagas = apostaMoedas;
+        } else {
+            pagas = switch (sinalAposta()) {
+                case 1 -> apostaMoedas.add(resultadoLiquidoBrl.multiply(MOEDAS_POR_REAL));
+                case 0 -> apostaMoedas;
+                default -> NADA;
+            };
+        }
         moedasPagas = pagas.setScale(2, RoundingMode.HALF_UP).max(NADA);
         return moedasPagas;
     }
@@ -239,7 +254,7 @@ public class OperacaoEstudo {
      * nao liquidou).
      */
     public int compararPagamento() {
-        return moedasPagas == null ? 0 : moedasPagas.compareTo(BigDecimal.valueOf(apostaMoedas));
+        return moedasPagas == null ? 0 : moedasPagas.compareTo(apostaMoedas);
     }
 
     /** Acertou a direcao (placar binario do estudo), independente das taxas: conta como acerto na sessao. */
@@ -357,7 +372,7 @@ public class OperacaoEstudo {
         return acertouDirecao;
     }
 
-    public Integer getApostaMoedas() {
+    public BigDecimal getApostaMoedas() {
         return apostaMoedas;
     }
 

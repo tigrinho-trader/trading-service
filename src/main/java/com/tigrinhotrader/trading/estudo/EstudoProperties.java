@@ -11,8 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * {@code simbolo} configurado e so e ligado pelo dono da conta.
  *
  * @param simbolo unico ativo que pode operar no modo REAL; os outros ativos sao sempre simulados
- * @param margemBrl margem por operacao, em reais
- * @param alavancagem posicao = margem x alavancagem
+ * @param margemBrl margem de referencia, em reais (so para o resumo; cada operacao tem o valor da flecha em reais)
+ * @param alavancagem nocional de referencia = margem x alavancagem (so para o resumo)
  * @param taxaSimulada taxa por ponta usada na simulacao (0.001 = 0,1%)
  * @param cambioReserva reais por USDT quando nao ha cotacao de USDTBRL
  * @param maxOperacoesDia operacoes reais por dia (UTC), somando todos os jogadores
@@ -69,7 +69,7 @@ public record EstudoProperties(ModoEstudo modo, String simbolo, BigDecimal marge
         apostaBinariaBrl = apostaBinariaBrl == null ? new BigDecimal("10") : apostaBinariaBrl;
     }
 
-    /** Tamanho da posicao em reais (margem x alavancagem). */
+    /** Nocional de referencia em reais (margem x alavancagem); as operacoes usam o valor da flecha. */
     public BigDecimal nocionalBrl() {
         return margemBrl.multiply(BigDecimal.valueOf(alavancagem));
     }

@@ -37,32 +37,42 @@ class CatalogoFlechaTest {
     @Test
     void ferroOuroEDiamanteSairamDoJogo() {
         assertThat(TipoFlecha.values()).containsExactly(TipoFlecha.WOOD, TipoFlecha.BTC, TipoFlecha.ETH,
-                TipoFlecha.OURO);
+                TipoFlecha.OURO, TipoFlecha.V100);
         assertThat(TipoFlecha.porId("iron")).isEmpty();
         assertThat(TipoFlecha.porId("gold")).isEmpty();
         assertThat(TipoFlecha.porId("diamond")).isEmpty();
     }
 
     @Test
-    void flechaDeMercadoCustaCemMoedasEmTodoCampo() {
-        // a aposta binaria de R$ 10 do estudo, a 10 moedas = R$ 1
-        assertThat(RegrasFlecha.PRECO_FLECHA_MERCADO).isEqualTo(100);
-        assertThat(RegrasFlecha.MOEDAS_POR_REAL).isEqualTo(10);
+    void flechaDeMercadoCustaOValorEscolhidoPeloJogador() {
+        // 1 real = 1 moeda: o valor da flecha e a aposta em moedas e a operacao em reais
+        assertThat(RegrasFlecha.MOEDAS_POR_REAL).isEqualTo(1);
+        assertThat(RegrasFlecha.NIVEIS_FLECHA).containsExactly(10, 20, 30);
+        assertThat(RegrasFlecha.VALOR_MINIMO_FLECHA).isEqualByComparingTo("1");
+        assertThat(RegrasFlecha.CASAS_VALOR_FLECHA).isEqualTo(2);
+        // clientes antigos (sem valor) compram o nivel 1; as guardadas do preco fixo antigo valem 100
+        assertThat(RegrasFlecha.VALOR_FLECHA_PADRAO).isEqualByComparingTo("10").hasScaleOf(2);
+        assertThat(RegrasFlecha.VALOR_FLECHA_ANTIGA).isEqualByComparingTo("100").hasScaleOf(2);
+        // nao ha preco do campo para elas
         for (Campo c : Campo.values()) {
-            assertThat(c.custoFlecha(TipoFlecha.BTC)).isEqualByComparingTo("100");
-            assertThat(c.custoFlecha(TipoFlecha.ETH)).isEqualByComparingTo("100");
-            assertThat(c.custoFlecha(TipoFlecha.OURO)).isEqualByComparingTo("100");
+            for (TipoFlecha t : TipoFlecha.values()) {
+                if (t.deMercado()) {
+                    assertThatThrownBy(() -> c.custoFlecha(t)).isInstanceOf(IllegalArgumentException.class);
+                }
+            }
         }
         assertThat(TipoFlecha.values()).filteredOn(TipoFlecha::deMercado)
-                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO);
+                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO, TipoFlecha.V100);
     }
 
     @Test
     void camposMaisCarosTemMaisAtivos() {
         assertThat(Campo.VILAREJO.passarosMercado()).containsExactly(Passaro.BTC);
         assertThat(Campo.BOSQUE.passarosMercado()).containsExactly(Passaro.BTC, Passaro.ETH);
-        assertThat(Campo.PICO.passarosMercado()).containsExactly(Passaro.BTC, Passaro.ETH, Passaro.OURO);
-        assertThat(Campo.RESERVA_REAL.passarosMercado()).containsExactly(Passaro.BTC, Passaro.ETH, Passaro.OURO);
+        assertThat(Campo.PICO.passarosMercado()).containsExactly(Passaro.BTC, Passaro.ETH, Passaro.OURO,
+                Passaro.V100);
+        assertThat(Campo.RESERVA_REAL.passarosMercado()).containsExactly(Passaro.BTC, Passaro.ETH, Passaro.OURO,
+                Passaro.V100);
         List<Integer> quantos = Arrays.stream(Campo.values()).map(c -> c.passarosMercado().size()).toList();
         assertThat(quantos).isSorted();
         assertThatThrownBy(() -> Campo.VILAREJO.passarosMercado().add(Passaro.ETH))
@@ -76,6 +86,9 @@ class CatalogoFlechaTest {
         assertThat(Campo.BOSQUE.temFlecha(TipoFlecha.OURO)).isFalse();
         assertThat(Campo.PICO.temFlecha(TipoFlecha.OURO)).isTrue();
         assertThat(Campo.RESERVA_REAL.temFlecha(TipoFlecha.OURO)).isTrue();
+        assertThat(Campo.BOSQUE.temFlecha(TipoFlecha.V100)).isFalse();
+        assertThat(Campo.PICO.temFlecha(TipoFlecha.V100)).isTrue();
+        assertThat(TipoFlecha.V100.passaroAlvo()).contains(Passaro.V100);
         for (Campo c : Campo.values()) {
             assertThat(c.temFlecha(TipoFlecha.WOOD)).isTrue();
         }
@@ -158,10 +171,11 @@ class CatalogoFlechaTest {
     @Test
     void tabelasDePassarosEFlechas() {
         assertThat(Passaro.values()).extracting(Passaro::id)
-                .containsExactly("red", "big", "yellow", "blue", "gold", "btc", "eth", "ouro");
+                .containsExactly("red", "big", "yellow", "blue", "gold", "btc", "eth", "ouro", "v100");
         assertThat(Passaro.values()).extracting(Passaro::moedas).containsOnly(0);
-        assertThat(TipoFlecha.values()).extracting(TipoFlecha::id).containsExactly("wood", "btc", "eth", "ouro");
-        assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(0, 1, 1, 1);
+        assertThat(TipoFlecha.values()).extracting(TipoFlecha::id)
+                .containsExactly("wood", "btc", "eth", "ouro", "v100");
+        assertThat(TipoFlecha.values()).extracting(TipoFlecha::fatorPreco).containsExactly(0, 1, 1, 1, 1);
         assertThat(TipoFlecha.ETH.fatorMoedas()).isEqualByComparingTo("2");
         assertThat(TipoFlecha.OURO.fatorMoedas()).isEqualByComparingTo("2");
         assertThat(TipoFlecha.ETH.nome()).isEqualTo("Ethereum");

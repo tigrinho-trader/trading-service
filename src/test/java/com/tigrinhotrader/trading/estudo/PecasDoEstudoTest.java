@@ -58,10 +58,11 @@ class PecasDoEstudoTest {
         assertThat(AtivoEstudo.porSimbolo("BTCUSDT")).contains(AtivoEstudo.BTC);
         assertThat(AtivoEstudo.porSimbolo("DOGEUSDT")).isEmpty();
         assertThat(AtivoEstudo.porSimbolo(null)).isEmpty();
+        assertThat(AtivoEstudo.porSimbolo("1hz100v")).contains(AtivoEstudo.V100);
         assertThat(AtivoEstudo.values()).extracting(AtivoEstudo::simbolo)
-                .containsExactly("BTCUSDT", "ETHUSDT", "PAXGUSDT");
+                .containsExactly("BTCUSDT", "ETHUSDT", "PAXGUSDT", "1HZ100V");
         assertThat(AtivoEstudo.values()).extracting(AtivoEstudo::flecha)
-                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO);
+                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO, TipoFlecha.V100);
     }
 
     @Test

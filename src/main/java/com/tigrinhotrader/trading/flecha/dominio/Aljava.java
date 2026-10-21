@@ -10,7 +10,8 @@ import java.util.Map;
 
 /**
  * Quantidade de flechas por tipo. Usada 3 vezes na sessao (compradas, restantes e disparadas) e na aljava guardada
- * do jogador.
+ * do jogador. Nas flechas de mercado e o total de cada tipo: o valor de cada uma fica nos lotes da sessao
+ * ({@link LotesMercado}).
  *
  * <p>As colunas iron, gold e diamond sao das flechas antigas de ferro, ouro e diamante, removidas do jogo: ficam so
  * para as linhas de antes (e as novas gravam 0). Nao contam no total, nao aparecem nos mapas e as guardadas sao
@@ -181,11 +182,16 @@ public class Aljava {
         return wood + btc + eth + ouro + v100;
     }
 
-    /** Quanto custam estas flechas no campo (sem a entrada). */
+    /**
+     * Quanto custam as flechas comuns daqui no campo (sem a entrada). As de mercado ficam de fora: custam o valor
+     * de cada lote ({@link LotesMercado}).
+     */
     public BigDecimal custo(Campo campo) {
         BigDecimal soma = BigDecimal.ZERO;
         for (TipoFlecha tipo : TipoFlecha.values()) {
-            soma = soma.add(campo.custoFlecha(tipo).multiply(BigDecimal.valueOf(get(tipo))));
+            if (!tipo.deMercado()) {
+                soma = soma.add(campo.custoFlecha(tipo).multiply(BigDecimal.valueOf(get(tipo))));
+            }
         }
         return soma;
     }

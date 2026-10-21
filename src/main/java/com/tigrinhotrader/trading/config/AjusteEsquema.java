@@ -19,8 +19,10 @@ import org.springframework.stereotype.Component;
  * subida (o enum do Java continua validando).
  *
  * <p>O update tambem nao muda o tipo de uma coluna: {@code operacoes_estudo.moedas_pagas} nasceu {@code integer}
- * (pagamento 200/100/0) e agora guarda centavos. No Postgres, se ainda for inteira, vira {@code numeric(14,2)}
- * (sem perda: as linhas antigas ficam com os valores delas). No H2 dos testes, ou sem a tabela, nao faz nada.
+ * (pagamento 200/100/0) e agora guarda centavos; {@code operacoes_estudo.aposta_moedas} nasceu {@code integer}
+ * (aposta fixa de 100) e agora guarda o valor da flecha escolhido pelo jogador, com centavos. No Postgres, se ainda
+ * forem inteiras, viram {@code numeric(14,2)} (sem perda: as linhas antigas ficam com os valores delas). No H2 dos
+ * testes, ou sem a tabela, nao faz nada.
  */
 @Component
 public class AjusteEsquema implements ApplicationRunner {
@@ -32,6 +34,11 @@ public class AjusteEsquema implements ApplicationRunner {
             + " and column_name = 'moedas_pagas'";
     static final String MOEDAS_PAGAS_DECIMAL =
             "alter table operacoes_estudo alter column moedas_pagas type numeric(14,2)";
+    static final String TIPO_APOSTA_MOEDAS = "select data_type from information_schema.columns"
+            + " where table_schema = current_schema() and table_name = 'operacoes_estudo'"
+            + " and column_name = 'aposta_moedas'";
+    static final String APOSTA_MOEDAS_DECIMAL =
+            "alter table operacoes_estudo alter column aposta_moedas type numeric(14,2)";
 
     private final JdbcTemplate jdbc;
 
@@ -51,20 +58,34 @@ public class AjusteEsquema implements ApplicationRunner {
         } catch (DataAccessException e) {
             log.warn("Nao consegui converter operacoes_estudo.moedas_pagas para numeric: {}", e.getMessage());
         }
+        try {
+            apostaMoedasComCentavos();
+        } catch (DataAccessException e) {
+            log.warn("Nao consegui converter operacoes_estudo.aposta_moedas para numeric: {}", e.getMessage());
+        }
     }
 
     /** Converte {@code moedas_pagas} de integer para numeric(14,2), so no Postgres e so se ainda for inteira. */
     void moedasPagasComCentavos() {
+        paraNumeric("moedas_pagas", TIPO_MOEDAS_PAGAS, MOEDAS_PAGAS_DECIMAL);
+    }
+
+    /** Converte {@code aposta_moedas} de integer para numeric(14,2), so no Postgres e so se ainda for inteira. */
+    void apostaMoedasComCentavos() {
+        paraNumeric("aposta_moedas", TIPO_APOSTA_MOEDAS, APOSTA_MOEDAS_DECIMAL);
+    }
+
+    private void paraNumeric(String coluna, String consultaTipo, String conversao) {
         String banco = jdbc.execute((ConnectionCallback<String>) c -> c.getMetaData().getDatabaseProductName());
         if (!"PostgreSQL".equals(banco)) {
             return;
         }
-        List<String> tipo = jdbc.queryForList(TIPO_MOEDAS_PAGAS, String.class);
+        List<String> tipo = jdbc.queryForList(consultaTipo, String.class);
         if (tipo.isEmpty() || !"integer".equalsIgnoreCase(tipo.get(0))) {
             // tabela ainda nao existe ou coluna ja convertida
             return;
         }
-        jdbc.execute(MOEDAS_PAGAS_DECIMAL);
-        log.info("Coluna operacoes_estudo.moedas_pagas convertida de integer para numeric(14,2)");
+        jdbc.execute(conversao);
+        log.info("Coluna operacoes_estudo.{} convertida de integer para numeric(14,2)", coluna);
     }
 }

@@ -3,6 +3,7 @@ package com.tigrinhotrader.trading.flecha.servico;
 import com.tigrinhotrader.trading.flecha.dominio.Aljava;
 import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardada;
 import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardadaRepository;
+import com.tigrinhotrader.trading.flecha.dominio.LoteFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
 import com.tigrinhotrader.trading.flecha.dominio.StatusSessao;
@@ -42,8 +43,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Sessoes do Flecha Certeira: o servidor cobra entrada + flechas, confere cada tiro (plausibilidade) e manda o
  * resultado para a carteira ao encerrar. Passaros nao pagam moedas: so as apostas das flechas de mercado rendem.
- * As flechas que sobram ficam guardadas para a proxima rodada (as comuns no campo onde foram compradas, as de
- * mercado em qualquer campo).
+ * As flechas de mercado tem o valor que o jogador escolhe (niveis de {@link RegrasFlecha#NIVEIS_FLECHA} ou qualquer
+ * valor a partir de 1 moeda, com ate 2 casas) e ficam em lotes por tipo e valor. As comuns que sobram ficam
+ * guardadas no campo onde foram compradas; as de mercado que sobram voltam em moedas ao encerrar, menos a taxa de
+ * devolucao ({@code flecha.taxa-devolucao}).
  */
 @Service
 public class SessaoFlechaService {
@@ -61,6 +64,10 @@ public class SessaoFlechaService {
 
     /** Flechas guardadas do jogador: as comuns de cada campo e as de mercado, que valem em todos. */
     public record Guardadas(Map<Campo, Aljava> porCampo, Aljava mercado) {
+    }
+
+    /** Lote de flechas de mercado pedido: {@code {"flecha":"btc","valor":10,"quantidade":3}}. */
+    public record PedidoLote(String flecha, BigDecimal valor, Integer quantidade) {
     }
 
     private final SessaoFlechaRepository repositorio;
@@ -84,20 +91,32 @@ public class SessaoFlechaService {
         this.relogio = relogio;
     }
 
-    /**
-     * Abre uma sessao cobrando entrada + flechas novas ({@code flechas}), se o saldo disponivel cobrir. A madeira e
-     * gratis e as de mercado so sao vendidas nos campos com o ativo delas (ferro, ouro e diamante sairam do jogo).
-     * As flechas guardadas do campo e todas as de mercado entram na aljava sem custo (as de um ativo que o campo nao
-     * tem nao podem ser apostadas aqui e voltam para a guarda ao encerrar); da para abrir sem comprar nada se houver
-     * ao menos uma guardada. A aljava comporta {@link RegrasFlecha#MAX_FLECHAS}: com mais guardadas que isso a sessao
-     * abre, mas sem comprar.
-     */
+    /** Abre uma sessao so com o mapa de flechas (sem lotes de mercado com valor). */
     @Transactional
     public SessaoFlecha criar(String usuarioId, String slugCampo, Map<String, Integer> flechas) {
+        return criar(usuarioId, slugCampo, flechas, List.of());
+    }
+
+    /**
+     * Abre uma sessao cobrando entrada + flechas novas, se o saldo disponivel cobrir: a madeira de {@code flechas} e
+     * gratis e cada lote de {@code mercado} custa valor x quantidade (so dos ativos do campo; ferro, ouro e diamante
+     * sairam do jogo). Flechas de mercado mandadas em {@code flechas} (clientes antigos) viram lotes do valor padrao
+     * ({@link RegrasFlecha#VALOR_FLECHA_PADRAO}). As flechas guardadas do campo e as de mercado guardadas (do preco
+     * fixo antigo, que entram como lotes de {@link RegrasFlecha#VALOR_FLECHA_ANTIGA}) entram na aljava sem custo; da
+     * para abrir sem comprar nada se houver ao menos uma guardada. A aljava comporta {@link RegrasFlecha#MAX_FLECHAS}:
+     * com mais guardadas que isso a sessao abre, mas sem comprar.
+     */
+    @Transactional
+    public SessaoFlecha criar(String usuarioId, String slugCampo, Map<String, Integer> flechas,
+                              List<PedidoLote> mercado) {
         Campo campo = Campo.porSlug(slugCampo)
                 .orElseThrow(() -> new RegraNegocioException("Campo desconhecido: " + slugCampo));
         Aljava pedido = pedido(campo, flechas);
-        if (pedido.total() > RegrasFlecha.MAX_FLECHAS) {
+        Aljava comuns = pedido.comuns();
+        List<LoteFlecha> lotes = new ArrayList<>(SessaoFlecha.lotesPadrao(pedido.deMercado()));
+        lotes.addAll(lotesPedidos(campo, mercado == null ? List.of() : mercado));
+        long novas = comuns.total() + lotes.stream().mapToLong(LoteFlecha::quantidade).sum();
+        if (novas > RegrasFlecha.MAX_FLECHAS) {
             throw escolhaDeFlechas();
         }
         if (repositorio.findFirstByUsuarioIdAndStatus(usuarioId, StatusSessao.ABERTA).isPresent()) {
@@ -107,25 +126,65 @@ public class SessaoFlechaService {
         Optional<AljavaGuardada> deMercado = aljavas.findByUsuarioIdAndEscopo(usuarioId, AljavaGuardada.MERCADO);
         int quantasGuardadas = doCampo.map(g -> g.getFlechas().comuns().total()).orElse(0)
                 + deMercado.map(g -> g.getFlechas().deMercado().total()).orElse(0);
-        if (pedido.total() + quantasGuardadas < 1) {
+        if (novas + quantasGuardadas < 1) {
             throw escolhaDeFlechas();
         }
-        if (pedido.total() > 0 && pedido.total() + quantasGuardadas > RegrasFlecha.MAX_FLECHAS) {
+        if (novas > 0 && novas + quantasGuardadas > RegrasFlecha.MAX_FLECHAS) {
             throw new RegraNegocioException("A aljava comporta no maximo " + RegrasFlecha.MAX_FLECHAS
                     + " flechas e voce ja tem " + quantasGuardadas + " guardadas");
         }
-        exigirSaldo(usuarioId, SessaoFlecha.custoAbertura(campo, pedido));
+        exigirSaldo(usuarioId, SessaoFlecha.custoAbertura(campo, comuns, lotes));
         Instant agora = relogio.instant();
         Aljava trazidas = Aljava.soma(
                 doCampo.map(g -> retirar(g, agora).comuns()).orElseGet(Aljava::vazia),
                 deMercado.map(g -> retirar(g, agora).deMercado()).orElseGet(Aljava::vazia));
-        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), usuarioId, campo, pedido, trazidas, agora);
+        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), usuarioId, campo, comuns, lotes, trazidas, agora);
         try {
             return repositorio.saveAndFlush(sessao);
         } catch (DataIntegrityViolationException e) {
             // outro pedido simultaneo abriu a sessao primeiro (UNIQUE em usuarioAberta)
             throw jaTemAberta();
         }
+    }
+
+    /**
+     * Lotes de mercado pedidos ao abrir: so flechas de mercado de ativos do campo, quantidade 0 ou mais (0 e
+     * ignorado) e valor valido ({@link #valorFlecha}).
+     */
+    private static List<LoteFlecha> lotesPedidos(Campo campo, List<PedidoLote> mercado) {
+        List<LoteFlecha> lotes = new ArrayList<>();
+        for (PedidoLote lote : mercado) {
+            TipoFlecha tipo = tipoFlecha(lote.flecha());
+            if (!tipo.deMercado()) {
+                throw new RegraNegocioException("Flechas " + tipo.nome() + " nao tem valor: peca-as em flechas");
+            }
+            if (lote.quantidade() == null || lote.quantidade() < 0) {
+                throw new RegraNegocioException("Quantidade invalida de flechas " + lote.flecha());
+            }
+            if (lote.quantidade() > 0) {
+                exigirNoCampo(campo, tipo);
+                lotes.add(new LoteFlecha(tipo, valorFlecha(tipo, lote.valor()), lote.quantidade()));
+            }
+        }
+        return lotes;
+    }
+
+    /**
+     * Valor de uma flecha de mercado escolhido pelo jogador: obrigatorio, pelo menos
+     * {@link RegrasFlecha#VALOR_MINIMO_FLECHA} moeda e com ate {@link RegrasFlecha#CASAS_VALOR_FLECHA} casas, sem
+     * teto (so o saldo limita). Devolve com 2 casas; invalido e 422.
+     */
+    static BigDecimal valorFlecha(TipoFlecha tipo, BigDecimal valor) {
+        if (valor == null) {
+            throw new RegraNegocioException("Informe o valor das flechas " + tipo.nome());
+        }
+        if (valor.compareTo(RegrasFlecha.VALOR_MINIMO_FLECHA) < 0
+                || valor.stripTrailingZeros().scale() > RegrasFlecha.CASAS_VALOR_FLECHA) {
+            throw new RegraNegocioException("O valor de uma flecha " + tipo.nome() + " e de pelo menos "
+                    + RegrasFlecha.VALOR_MINIMO_FLECHA + " moeda, com ate " + RegrasFlecha.CASAS_VALOR_FLECHA
+                    + " casas: " + valor.toPlainString());
+        }
+        return valor.setScale(RegrasFlecha.CASAS_VALOR_FLECHA);
     }
 
     private Aljava retirar(AljavaGuardada guardada, Instant agora) {
@@ -178,9 +237,9 @@ public class SessaoFlechaService {
         }
     }
 
-    /** Tipo de flecha pelo id: ferro, ouro e diamante sairam do jogo (400); id desconhecido e 422. */
+    /** Tipo de flecha pelo id: ferro, ouro e diamante sairam do jogo (400); id desconhecido (ou nulo) e 422. */
     private static TipoFlecha tipoFlecha(String id) {
-        if (FLECHAS_REMOVIDAS.contains(id)) {
+        if (id != null && FLECHAS_REMOVIDAS.contains(id)) {
             throw new PedidoInvalidoException(FLECHA_REMOVIDA);
         }
         return TipoFlecha.porId(id).orElseThrow(() -> new RegraNegocioException("Flecha desconhecida: " + id));
@@ -251,10 +310,11 @@ public class SessaoFlechaService {
 
     /**
      * Compra mais flechas no meio da sessao (1..20 por vez, aljava ate 40), se o saldo cobrir: madeira (gratis) ou
-     * as de mercado dos ativos do campo.
+     * as de mercado dos ativos do campo, que pedem o {@code valor} de cada flecha (custam valor x quantidade e entram
+     * no lote desse valor). Na madeira o valor e ignorado.
      */
     @Transactional
-    public SessaoFlecha comprar(String usuarioId, UUID id, String flecha, int quantidade) {
+    public SessaoFlecha comprar(String usuarioId, UUID id, String flecha, int quantidade, BigDecimal valor) {
         SessaoFlecha sessao = buscarAberta(usuarioId, id);
         TipoFlecha tipo = tipoFlecha(flecha);
         exigirNoCampo(sessao.getCampo(), tipo);
@@ -264,9 +324,11 @@ public class SessaoFlechaService {
         if (sessao.getRestantes().total() + quantidade > RegrasFlecha.MAX_FLECHAS) {
             throw new RegraNegocioException("A aljava comporta no maximo " + RegrasFlecha.MAX_FLECHAS + " flechas");
         }
-        BigDecimal extra = sessao.getCampo().custoFlecha(tipo).multiply(BigDecimal.valueOf(quantidade));
+        BigDecimal valorFlecha = tipo.deMercado() ? valorFlecha(tipo, valor) : null;
+        BigDecimal extra = (valorFlecha == null ? sessao.getCampo().custoFlecha(tipo) : valorFlecha)
+                .multiply(BigDecimal.valueOf(quantidade));
         exigirSaldo(usuarioId, extra);
-        sessao.comprar(tipo, quantidade, relogio.instant());
+        sessao.comprar(tipo, quantidade, valorFlecha, relogio.instant());
         return repositorio.save(sessao);
     }
 
@@ -358,13 +420,13 @@ public class SessaoFlechaService {
     }
 
     /**
-     * Guarda as flechas que sobraram, grava (com flush, para um conflito de versao aparecer antes de avisar a
-     * carteira) e publica o resultado. Se a fila falhar, a transacao volta e a sessao continua ABERTA, com as flechas.
+     * Guarda as flechas comuns que sobraram, devolve as de mercado (valor x quantidade menos a taxa de devolucao,
+     * somado ao resultado), grava (com flush, para um conflito de versao aparecer antes de avisar a carteira) e
+     * publica o resultado. Se a fila falhar, a transacao volta e a sessao continua ABERTA, com as flechas.
      */
     private SessaoFlecha fechar(SessaoFlecha sessao, Instant agora) {
-        Aljava sobra = sessao.encerrar(agora);
-        guardar(sessao.getUsuarioId(), sessao.getCampo().slug(), sobra.comuns(), agora);
-        guardar(sessao.getUsuarioId(), AljavaGuardada.MERCADO, sobra.deMercado(), agora);
+        Aljava sobra = sessao.encerrar(agora, propriedades.taxaDevolucao());
+        guardar(sessao.getUsuarioId(), sessao.getCampo().slug(), sobra, agora);
         SessaoFlecha salva = repositorio.saveAndFlush(sessao);
         try {
             publisher.publicarSessaoFlecha(evento(salva));

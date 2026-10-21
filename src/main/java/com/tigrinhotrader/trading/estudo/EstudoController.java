@@ -25,8 +25,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Estudo da sabedoria das massas: a operacao feita com cada flecha de mercado (que gasta a flecha da sessao aberta
- * e e liquidada como aposta de 100 moedas mais o resultado liquido da operacao) e o resumo do estudo.
+ * Estudo da sabedoria das massas: a operacao feita com cada flecha de mercado (que gasta uma flecha do valor escolhido
+ * da sessao aberta, opera esse valor em reais e e liquidada como aposta: valor mais o resultado liquido da operacao
+ * no acerto, 0 no erro) e o resumo do estudo.
  */
 @RestController
 @RequestMapping("/jogos/flecha/estudo")
@@ -34,18 +35,22 @@ public class EstudoController {
 
     /**
      * Previsao do jogador no instante do disparo: sobe ou desce. {@code tipo} e aceito e ignorado (a operacao e
-     * sempre BINARIA). {@code simbolo}: BTCUSDT, ETHUSDT ou PAXGUSDT (sem ele, BTCUSDT).
+     * sempre BINARIA). {@code simbolo}: BTCUSDT, ETHUSDT, PAXGUSDT ou 1HZ100V (sem ele, BTCUSDT). {@code valor}: o
+     * valor da flecha gasta, um lote da aljava (422 se nao houver flecha do ativo com esse valor); sem ele, a de
+     * menor valor do ativo.
      */
     public record NovaOperacao(@NotNull UUID sessaoId, @NotBlank String direcao, String tipo,
-                               @Positive BigDecimal precoAgora, @Positive BigDecimal precoPrevisto, String simbolo) {
+                               @Positive BigDecimal precoAgora, @Positive BigDecimal precoPrevisto, String simbolo,
+                               BigDecimal valor) {
     }
 
     /**
      * O que o jogador ve: o ativo, a direcao, o modo e, quando fechar, quanto a operacao ganhou ou perdeu.
-     * {@code moedasPagas}: o que a aposta de 100 moedas pagou, numero com 2 casas: 100 + 10 x resultadoLiquidoBrl
-     * na fechada (ex.: 99.40, 100.31; nunca menos que 0), 100 na recusada ou com falha; nulo ate liquidar.
-     * Operacoes antigas guardam o pagamento da regra anterior (200/100/0). {@code sessao}: a sessao da flecha, com
-     * a aljava e os ganhos atualizados (nula se nao existe).
+     * {@code nocionalBrl}: o valor da flecha em reais. {@code moedasPagas}: o que a aposta pagou, numero com 2 casas:
+     * na fechada, valor + resultadoLiquidoBrl se acertou a direcao (ex.: 10.30, ou 9.94 se as taxas comeram o
+     * lucro; nunca menos que 0), 0 se errou e o valor se empatou; o valor na recusada ou com falha; nulo ate liquidar.
+     * Operacoes antigas guardam o pagamento da regra delas. {@code sessao}: a sessao da flecha, com a aljava e os
+     * ganhos atualizados (nula se nao existe).
      */
     public record OperacaoResponse(UUID id, String simbolo, Direcao direcao, TipoPrevisao tipo, ModoEstudo modo,
                                    StatusOperacao status, String motivo, BigDecimal nocionalBrl,
@@ -132,7 +137,7 @@ public class EstudoController {
     public OperacaoResponse registrar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId,
                                       @Valid @RequestBody NovaOperacao pedido) {
         return OperacaoResponse.de(service.registrar(usuarioId, pedido.sessaoId(), pedido.simbolo(),
-                pedido.direcao(), pedido.precoAgora(), pedido.precoPrevisto()));
+                pedido.direcao(), pedido.precoAgora(), pedido.precoPrevisto(), pedido.valor()));
     }
 
     @GetMapping("/operacoes/{id}")

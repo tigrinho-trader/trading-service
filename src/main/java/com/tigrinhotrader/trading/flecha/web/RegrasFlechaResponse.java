@@ -13,10 +13,14 @@ import java.util.Map;
 
 /**
  * Tabelas do Flecha Certeira para o frontend conferir/mostrar os mesmos numeros que o servidor cobra. Passaros valem
- * 0 (so as apostas das flechas de mercado rendem moedas) e a madeira e gratis.
+ * 0 (so as apostas das flechas de mercado rendem moedas) e a madeira e gratis. {@code niveisFlecha}: valores prontos
+ * de uma flecha de mercado (nivel 1, 2, 3), em moedas; {@code valorMinimoFlecha}: menor valor aceito (qualquer valor a
+ * partir dele, com ate 2 casas, sem teto); {@code taxaDevolucaoFlechas}: fracao descontada das flechas de mercado
+ * que sobram e voltam em moedas ao encerrar.
  */
 public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> passaros, List<FlechaInfo> flechas,
-                                   int maxFlechas, int maxCombo) {
+                                   int maxFlechas, int maxCombo, List<Integer> niveisFlecha,
+                                   BigDecimal valorMinimoFlecha, BigDecimal taxaDevolucaoFlechas) {
 
     /**
      * {@code passarosMercado}: ids dos passaros (e flechas) de mercado do campo, ex. ["btc", "eth"]; {@code ativos}:
@@ -37,20 +41,20 @@ public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> 
 
     /**
      * {@code passaroAlvo}: id do unico passaro que a flecha acerta (flechas de mercado), ou nulo se acerta todos.
-     * {@code precoFixo}: preco da flecha em qualquer campo (flechas de mercado, a aposta binaria do estudo), ou nulo
-     * quando o preco e fatorPreco x flechaBase do campo (a madeira tem fator 0: gratis).
+     * {@code precoFixo}: sempre nulo; as comuns custam fatorPreco x flechaBase do campo (a madeira tem fator 0:
+     * gratis) e as de mercado custam o valor escolhido pelo jogador ({@code niveisFlecha}).
      */
     public record FlechaInfo(String id, String nome, int fatorPreco, BigDecimal fatorMoedas, String passaroAlvo,
                              Integer precoFixo) {
 
         static FlechaInfo de(TipoFlecha t) {
             return new FlechaInfo(t.id(), t.nome(), t.fatorPreco(), t.fatorMoedas(),
-                    t.passaroAlvo().map(Passaro::id).orElse(null),
-                    t.deMercado() ? RegrasFlecha.PRECO_FLECHA_MERCADO : null);
+                    t.passaroAlvo().map(Passaro::id).orElse(null), null);
         }
     }
 
-    public static RegrasFlechaResponse atuais() {
+    /** As regras de hoje, com a taxa de devolucao configurada ({@code flecha.taxa-devolucao}). */
+    public static RegrasFlechaResponse atuais(BigDecimal taxaDevolucao) {
         Map<String, Integer> passaros = new LinkedHashMap<>();
         for (Passaro p : Passaro.values()) {
             passaros.put(p.id(), p.moedas());
@@ -60,6 +64,9 @@ public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> 
                 passaros,
                 Arrays.stream(TipoFlecha.values()).map(FlechaInfo::de).toList(),
                 RegrasFlecha.MAX_FLECHAS,
-                RegrasFlecha.MAX_COMBO);
+                RegrasFlecha.MAX_COMBO,
+                RegrasFlecha.NIVEIS_FLECHA,
+                RegrasFlecha.VALOR_MINIMO_FLECHA,
+                taxaDevolucao);
     }
 }

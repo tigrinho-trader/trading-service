@@ -29,8 +29,8 @@ public class EstudoConfig {
         SimpleClientHttpRequestFactory fabrica = new SimpleClientHttpRequestFactory();
         fabrica.setConnectTimeout(propriedades.binance().timeout());
         fabrica.setReadTimeout(propriedades.binance().timeout());
-        LOG.warn("Estudo em modo REAL: cada flecha bitcoin abre uma operacao de R$ {} na margem isolada {} ({})",
-                propriedades.nocionalBrl(), propriedades.simbolo(), propriedades.binance());
+        LOG.warn("Estudo em modo REAL: cada flecha bitcoin abre uma operacao do valor da flecha (em reais) na "
+                + "margem isolada {} ({})", propriedades.simbolo(), propriedades.binance());
         return new CorretoraBinanceMargem(builder.clone().requestFactory(fabrica).build(), propriedades, precos,
                 relogio);
     }

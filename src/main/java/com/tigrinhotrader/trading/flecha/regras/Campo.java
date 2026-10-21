@@ -65,12 +65,14 @@ public enum Campo {
     }
 
     /**
-     * Custo de uma flecha neste campo = fatorPreco x preco base (a madeira tem fator 0: e gratis); flecha de mercado
-     * tem preco fixo ({@link RegrasFlecha#PRECO_FLECHA_MERCADO}) em todo campo.
+     * Custo de uma flecha comum neste campo = fatorPreco x preco base (a madeira tem fator 0: e gratis). Flecha de
+     * mercado nao tem preco do campo: custa o valor que o jogador escolhe (ver {@link RegrasFlecha#NIVEIS_FLECHA}).
+     *
+     * @throws IllegalArgumentException para flecha de mercado
      */
     public BigDecimal custoFlecha(TipoFlecha tipo) {
         if (tipo.deMercado()) {
-            return BigDecimal.valueOf(RegrasFlecha.PRECO_FLECHA_MERCADO);
+            throw new IllegalArgumentException("Flecha " + tipo.id() + " custa o valor escolhido pelo jogador");
         }
         return BigDecimal.valueOf((long) tipo.fatorPreco() * flechaBase);
     }
