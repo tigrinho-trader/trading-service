@@ -92,10 +92,7 @@ public class CorretoraDerivOptions implements Corretora {
             JsonNode contratoFinal = sessao.esperarLiquidacao(contrato);
             BigDecimal payout = contratoFinal.hasNonNull("payout") ? decimal(contratoFinal, "payout") : BigDecimal.ZERO;
             BigDecimal lucro = contratoFinal.hasNonNull("profit") ? decimal(contratoFinal, "profit") : payout.add(abertura.fluxoUsdt());
-            // empate: o tick de saida igual ao de entrada (na Deriv o contrato perde, mas o jogo devolve a aposta)
-            BigDecimal marca = empatou(contratoFinal) ? BigDecimal.ZERO
-                    : lucro.signum() > 0 ? BigDecimal.ONE : BigDecimal.ONE.negate();
-            BigDecimal preco = abertura.precoMedio().add(marca.multiply(BigDecimal.ONE));
+            BigDecimal preco = precoDeSaida(direcao, abertura.precoMedio(), contratoFinal, lucro);
             sessoes.remove(contrato);
             sessao.fechar();
             return new Execucao("deriv-fechado-" + contrato, BigDecimal.ZERO, preco, payout,
@@ -138,6 +135,19 @@ public class CorretoraDerivOptions implements Corretora {
     }
 
     private static BigDecimal decimal(JsonNode n, String campo) { return new BigDecimal(n.path(campo).asText("0")); }
+
+    /**
+     * Preco de saida sintetico. A Deriv diz quem ganhou (o lucro do contrato), nao um preco que o
+     * {@link ResultadoOperacao} possa comparar; ele mede acerto como direcao x movimento. Por isso o preco anda
+     * 1 ponto NA DIRECAO PREVISTA quando o contrato deu lucro e contra ela quando deu prejuizo. Sem o fator da
+     * direcao, uma QUEDA (PUT) vencedora virava erro e uma perdedora virava acerto.
+     * Empate (tick de saida igual ao de entrada): o preco nao anda e o jogo devolve a aposta, embora na Deriv o
+     * contrato perca.
+     */
+    static BigDecimal precoDeSaida(Direcao direcao, BigDecimal precoEntrada, JsonNode contrato, BigDecimal lucro) {
+        int marca = empatou(contrato) ? 0 : lucro.signum() > 0 ? 1 : -1;
+        return precoEntrada.add(BigDecimal.valueOf((long) marca * direcao.sinal()));
+    }
 
     /** O contrato terminou no mesmo preco em que entrou (entry_tick/entry_spot igual a exit_tick). */
     static boolean empatou(JsonNode contrato) {
