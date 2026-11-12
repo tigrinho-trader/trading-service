@@ -31,8 +31,8 @@ flecha:
   # sessao aberta sem atividade por mais que isso e encerrada automaticamente
   expira-apos: ${FLECHA_EXPIRA_APOS:10m}
   intervalo-minimo-tiro: 150ms
-  # flechas de mercado que sobram voltam ao encerrar com este desconto (0.002 = 0,1% em cada ponta real/dolar)
-  taxa-devolucao: ${FLECHA_TAXA_DEVOLUCAO:0.002}
+  # flechas de mercado que sobram voltam ao encerrar com este desconto (0.01 = 1%); o jogo avisa antes de sair
+  taxa-devolucao: ${FLECHA_TAXA_DEVOLUCAO:0.01}
   # entrada livre por tempo limitado: todos os campos cobram 0 de entrada (false volta a cobrar a tabela)
   entrada-livre: true
   agendador:

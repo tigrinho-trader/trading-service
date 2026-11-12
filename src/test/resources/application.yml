@@ -21,6 +21,8 @@ trading:
 flecha:
   # os testes da cobranca usam a entrada de tabela (0,5 / 1,5 / 4 / 10); a entrada livre tem testes proprios
   entrada-livre: false
+  # as contas dos testes usam a devolucao a 0,2% (o padrao de producao e 1%)
+  taxa-devolucao: 0.002
   # nos testes o encerramento automatico e chamado na mao
   agendador:
     habilitado: false

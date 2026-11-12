@@ -94,7 +94,7 @@ class SessaoFlechaServiceTest {
         when(repositorio.saveAndFlush(any(SessaoFlecha.class))).thenAnswer(inv -> inv.getArgument(0));
         when(wallet.saldo("u1")).thenReturn(new BigDecimal("1000"));
         service = new SessaoFlechaService(repositorio, aljavas, new SaldoDisponivel(wallet, ordens, repositorio),
-                publisher, new FlechaProperties(null, null, null), new TransacaoFalsa(),
+                publisher, new FlechaProperties(null, null, new BigDecimal("0.002")), new TransacaoFalsa(),
                 Clock.fixed(agora, ZoneOffset.UTC));
     }
 
@@ -111,11 +111,11 @@ class SessaoFlechaServiceTest {
         FlechaProperties padrao = new FlechaProperties(null, null, null);
         assertThat(padrao.expiraApos()).isEqualTo(Duration.ofMinutes(10));
         assertThat(padrao.intervaloMinimoTiro()).isEqualTo(Duration.ofMillis(150));
-        // 0,1% em cada ponta da conversao real -> dolar -> real
-        assertThat(padrao.taxaDevolucao()).isEqualByComparingTo("0.002");
-        FlechaProperties outra = new FlechaProperties(Duration.ofMinutes(1), Duration.ZERO, new BigDecimal("0.01"));
+        // sem FLECHA_TAXA_DEVOLUCAO: 1%
+        assertThat(padrao.taxaDevolucao()).isEqualByComparingTo("0.01");
+        FlechaProperties outra = new FlechaProperties(Duration.ofMinutes(1), Duration.ZERO, new BigDecimal("0.002"));
         assertThat(outra.expiraApos()).isEqualTo(Duration.ofMinutes(1));
-        assertThat(outra.taxaDevolucao()).isEqualByComparingTo("0.01");
+        assertThat(outra.taxaDevolucao()).isEqualByComparingTo("0.002");
     }
 
     @Test
@@ -356,7 +356,7 @@ class SessaoFlechaServiceTest {
         verify(aljavas, times(1)).save(salvas.capture());
         assertThat(salvas.getAllValues()).extracting(AljavaGuardada::getEscopo).containsExactly("pico");
         assertThat(s.getRestantes().total()).isZero();
-        // a flecha de ouro de 10 volta com a taxa padrao (0,2%): 9,98, somada ao resultado
+        // a flecha de ouro de 10 volta com a taxa dos testes (0,2%): 9,98, somada ao resultado
         assertThat(s.getDevolucaoQuantidade()).isEqualTo(1);
         assertThat(s.getDevolucaoValor()).isEqualByComparingTo("9.98");
         ArgumentCaptor<SessaoFlechaEncerradaEvento> evento = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);

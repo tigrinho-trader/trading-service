@@ -56,7 +56,7 @@ ficam em `flecha/regras/` (`Campo`, `Passaro`, `TipoFlecha`, `RegrasFlecha`) e e
 
 | Metodo | Caminho | Descricao |
 |---|---|---|
-| GET | `/jogos/flecha/regras` | Campos, passaros, flechas, limites, `niveisFlecha` (`[10, 20, 30]`), `valorMinimoFlecha` (`1`) e `taxaDevolucaoFlechas` (`0.002`). **Publico** (nao precisa de `X-Usuario-Id`) |
+| GET | `/jogos/flecha/regras` | Campos, passaros, flechas, limites, `niveisFlecha` (`[10, 20, 30]`), `valorMinimoFlecha` (`1`) e `taxaDevolucaoFlechas` (`0.01`). **Publico** (nao precisa de `X-Usuario-Id`) |
 | GET | `/jogos/flecha/aljava` | Flechas guardadas de sessoes anteriores (comuns por campo; em `mercado`, so as de mercado guardadas antes do valor escolhido) |
 | POST | `/jogos/flecha/sessoes` | Abre uma sessao. Corpo: `{"campo":"bosque","flechas":{"wood":10},"mercado":[{"flecha":"btc","valor":10,"quantidade":3},{"flecha":"eth","valor":25.5,"quantidade":1}]}` → **201** (`mercado` e opcional; `flechas` continua obrigatorio, pode ser `{}`) |
 | GET | `/jogos/flecha/sessoes/atual` | Sessao ABERTA do jogador (**200**) ou nenhuma (**204**) |
@@ -103,8 +103,8 @@ Regras:
   guardadas antes desta regra (preco fixo antigo) entram como lotes de 100 moedas. Da para abrir sem comprar nada se
   houver ao menos uma guardada. Ao encerrar ou expirar, a madeira que sobra volta para a guarda do campo; as flechas
   de mercado que sobram **nao** sao guardadas: voltam em moedas, `soma(valor x quantidade) x (1 - taxa)` com 2 casas
-  (meio-para-cima), somadas ao resultado da sessao (`flecha.taxa-devolucao`, padrao 0.002 = 0,1% em cada ponta da
-  conversao real -> dolar -> real). Uma sessao ABERTA por jogador (**409**; garantido
+  (meio-para-cima), somadas ao resultado da sessao (`flecha.taxa-devolucao`, padrao 0.01 = 1%; o jogo
+  avisa a perda antes de sair do campo). Uma sessao ABERTA por jogador (**409**; garantido
   tambem por um UNIQUE no banco). O custo precisa caber no **saldo disponivel** = saldo da carteira
   (`GET /carteira` no wallet-service) - ordens abertas - sessoes abertas, senao **422**
   `Saldo insuficiente: disponivel X`. As ordens de `/ordens` tambem passaram a descontar as sessoes abertas.
@@ -169,7 +169,7 @@ Configuracao:
 |---|---|---|---|
 | `flecha.expira-apos` | `FLECHA_EXPIRA_APOS` | `10m` | Inatividade que encerra a sessao automaticamente |
 | `flecha.intervalo-minimo-tiro` | — | `150ms` | Menor intervalo entre tiros (senao 429) |
-| `flecha.taxa-devolucao` | `FLECHA_TAXA_DEVOLUCAO` | `0.002` | Fracao descontada das flechas de mercado que sobram e voltam em moedas ao encerrar (0,1% em cada ponta real/dolar) |
+| `flecha.taxa-devolucao` | `FLECHA_TAXA_DEVOLUCAO` | `0.01` | Fracao descontada das flechas de mercado que sobram e voltam em moedas ao encerrar (1%); o jogo avisa a perda antes de sair do campo |
 | `flecha.agendador.habilitado` | `FLECHA_AGENDADOR_HABILITADO` | `true` | Liga o encerramento automatico (desligado nos testes) |
 | `flecha.agendador.intervalo-ms` | — | `60000` | Intervalo entre verificacoes |
 

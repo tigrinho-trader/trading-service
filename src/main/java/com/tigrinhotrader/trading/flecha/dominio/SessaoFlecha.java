@@ -329,7 +329,7 @@ public class SessaoFlecha {
     /**
      * Encerra a sessao e tira da aljava as flechas que sobraram. As comuns (e as antigas de uma sessao aberta antes
      * de elas sairem do jogo) voltam para o servico guardar; as de mercado viram a devolucao: valor x quantidade de
-     * cada lote menos {@code taxaDevolucao} (fracao, ex. 0.002), em centavos HALF_UP, somada ao resultado.
+     * cada lote menos {@code taxaDevolucao} (fracao, ex. 0.01), em centavos HALF_UP, somada ao resultado.
      *
      * @return as flechas comuns que sobraram
      */
