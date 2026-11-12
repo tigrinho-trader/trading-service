@@ -14,6 +14,11 @@ import java.util.Set;
  * Campos de tiro: entrada fixa, preco base da flecha, multiplicador das moedas, pesos do sorteio dos passaros e os
  * passaros de mercado (ativos) do campo: quanto mais caro o campo, mais ativos para apostar. Espelha RANGES do
  * frontend ({@code src/regras.js}); o servidor e a fonte da verdade do dinheiro.
+ *
+ * <p>ENTRADA LIVRE POR TEMPO LIMITADO: com a entrada livre ligada (em producao, {@code flecha.entrada-livre}, padrao
+ * true, ver {@link EntradaLivreConfig}) {@link #entrada()} e 0 em todos os campos. A cobranca continua a mesma (custo =
+ * entrada + flechas, ver {@code SessaoFlecha.custoAbertura}); so cobra 0. A tabela (0,5 / 1,5 / 4 / 10) fica guardada
+ * em {@link #entradaTabela()} e volta a valer desligando a chave.
  */
 public enum Campo {
     VILAREJO("vilarejo", "Campo do Vilarejo", new BigDecimal("0.5"), 1, 2, pesos("5", "3", "1", "0", "0.3"),
@@ -24,6 +29,9 @@ public enum Campo {
             mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100)),
     RESERVA_REAL("reserva-real", "Reserva Real", new BigDecimal("10"), 20, 25, pesos("2", "1", "3", "4", "1.2"),
             mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100));
+
+    /** Chave da entrada livre: ligada, todos os campos cobram 0 de entrada. Quem liga e o {@link EntradaLivreConfig}. */
+    private static volatile boolean entradaLivre;
 
     private final String slug;
     private final String nome;
@@ -123,8 +131,23 @@ public enum Campo {
         return nome;
     }
 
+    /** Entrada cobrada agora: 0 com a entrada livre ligada; senao, a da tabela. */
     public BigDecimal entrada() {
+        return entradaLivre ? BigDecimal.ZERO : entrada;
+    }
+
+    /** Entrada de tabela do campo (a que volta a valer quando a entrada livre for desligada). */
+    public BigDecimal entradaTabela() {
         return entrada;
+    }
+
+    public static boolean entradaLivre() {
+        return entradaLivre;
+    }
+
+    /** Liga ou desliga a entrada livre de todos os campos. */
+    public static void definirEntradaLivre(boolean livre) {
+        entradaLivre = livre;
     }
 
     public int flechaBase() {

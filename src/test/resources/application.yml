@@ -19,6 +19,8 @@ trading:
   resolucao-intervalo-ms: 3600000
 
 flecha:
+  # os testes da cobranca usam a entrada de tabela (0,5 / 1,5 / 4 / 10); a entrada livre tem testes proprios
+  entrada-livre: false
   # nos testes o encerramento automatico e chamado na mao
   agendador:
     habilitado: false
