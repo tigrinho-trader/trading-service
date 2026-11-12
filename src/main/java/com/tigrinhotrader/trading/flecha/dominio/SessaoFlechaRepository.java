@@ -18,8 +18,11 @@ public interface SessaoFlechaRepository extends JpaRepository<SessaoFlecha, UUID
     /** Sessoes abertas paradas desde antes do limite (o agendador encerra). */
     List<SessaoFlecha> findByStatusAndUltimaAtividadeEmBefore(StatusSessao status, Instant limite);
 
-    /** Custo das sessoes abertas: dinheiro ja comprometido no jogo, como as ordens abertas. */
-    @Query("select coalesce(sum(s.custo), 0) from SessaoFlecha s where s.usuarioId = :usuarioId "
+    /**
+     * O que as sessoes abertas ainda comprometem: custo menos o que ja voltou nelas (as apostas de mercado ja
+     * liquidadas). Negativo quando a rodada esta no lucro: esse ganho ja pode ser usado sem sair do campo.
+     */
+    @Query("select coalesce(sum(s.custo - s.ganhos), 0) from SessaoFlecha s where s.usuarioId = :usuarioId "
             + "and s.status = com.tigrinhotrader.trading.flecha.dominio.StatusSessao.ABERTA")
-    BigDecimal somarCustoEmAberto(@Param("usuarioId") String usuarioId);
+    BigDecimal somarComprometidoEmAberto(@Param("usuarioId") String usuarioId);
 }

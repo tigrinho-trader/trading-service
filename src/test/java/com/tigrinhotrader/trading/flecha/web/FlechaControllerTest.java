@@ -106,6 +106,8 @@ class FlechaControllerTest {
     private SessaoFlechaService service;
     @Autowired
     private AljavaGuardadaRepository aljavasGuardadas;
+    @Autowired
+    private com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository sessoes;
 
     @MockBean
     private RabbitTemplate rabbitTemplate;
@@ -372,7 +374,7 @@ class FlechaControllerTest {
     }
 
     @Test
-    void sobrasComunsFicamGuardadasNoCampoEAsDeMercadoVoltamEmMoedas() throws Exception {
+    void sobrasNaoAcumulamAMadeiraSaiEAsDeMercadoVoltamEmMoedas() throws Exception {
         // vilarejo: 0,5 + 3 madeira (gratis) + 1 bitcoin sem valor (10) = 10,5
         String vilarejo = abrirId("guarda", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":3,\"btc\":1}}");
         atirar("guarda", vilarejo, "{\"flecha\":\"wood\",\"acertos\":[]}").andExpect(status().isOk());
@@ -384,32 +386,19 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.mercado", hasSize(0)));
         assertThat(eventoPublicado().valorLiquido()).isEqualByComparingTo("-0.52");
 
+        // as 2 de madeira que sobraram nao ficam guardadas (gratis: nada a devolver)
         aljava("guarda").andExpect(status().isOk())
-                .andExpect(jsonPath("$.campos.vilarejo.wood").value(2))
-                .andExpect(jsonPath("$.campos.bosque.wood").value(0))
+                .andExpect(jsonPath("$.campos.vilarejo.wood").value(0))
                 .andExpect(jsonPath("$.mercado.btc").value(0));
 
-        // no bosque a madeira do vilarejo nao vale
-        String bosque = objectMapper.readTree(abrir("guarda", "{\"campo\":\"bosque\",\"flechas\":{\"wood\":1}}")
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.custo").value(1.5))
-                .andExpect(jsonPath("$.flechas.wood").value(1))
-                .andExpect(jsonPath("$.flechas.btc").value(0))
-                .andReturn().getResponse().getContentAsString()).get("id").asText();
-        aljava("guarda").andExpect(jsonPath("$.campos.vilarejo.wood").value(2));
-        encerrar("guarda", bosque).andExpect(status().isOk());
-        aljava("guarda").andExpect(jsonPath("$.campos.bosque.wood").value(1));
-
-        // de volta ao vilarejo sem comprar nada: so a entrada, com as flechas guardadas
-        String volta = objectMapper.readTree(abrir("guarda", "{\"campo\":\"vilarejo\",\"flechas\":{}}")
+        // de volta ao vilarejo: so as flechas novas, sem as que sobraram
+        abrir("guarda", "{\"campo\":\"vilarejo\",\"flechas\":{}}").andExpect(status().isUnprocessableEntity());
+        String volta = objectMapper.readTree(abrir("guarda", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":10}}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.custo").value(0.5))
-                .andExpect(jsonPath("$.flechas.wood").value(2))
-                .andExpect(jsonPath("$.compradas.wood").value(0))
+                .andExpect(jsonPath("$.flechas.wood").value(10))
+                .andExpect(jsonPath("$.compradas.wood").value(10))
                 .andReturn().getResponse().getContentAsString()).get("id").asText();
-        aljava("guarda")
-                .andExpect(jsonPath("$.campos.vilarejo.wood").value(0))
-                .andExpect(jsonPath("$.campos.bosque.wood").value(1));
         atirar("guarda", volta, "{\"flecha\":\"wood\",\"acertos\":[\"red\",\"btc\"]}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ganhosTiro").value(0))
@@ -424,13 +413,13 @@ class FlechaControllerTest {
         deAntes.guardar(Aljava.de(Map.of(TipoFlecha.WOOD, 2)), relogio.instant());
         aljavasGuardadas.save(deAntes);
 
-        aljava("reembolsado").andExpect(jsonPath("$.campos.bosque.wood").value(2))
+        aljava("reembolsado").andExpect(jsonPath("$.campos.bosque.wood").value(0))   // madeira guardada nao aparece
                 .andExpect(jsonPath("$.campos.bosque.iron").doesNotExist())
                 .andExpect(jsonPath("$.campos.bosque.diamond").doesNotExist());
-        // abrir no bosque leva so a madeira; as antigas nao entram na sessao
-        String id = objectMapper.readTree(abrir("reembolsado", "{\"campo\":\"bosque\",\"flechas\":{}}")
+        // abrir no bosque leva so a madeira nova (a guardada sai); as antigas nao entram na sessao
+        String id = objectMapper.readTree(abrir("reembolsado", "{\"campo\":\"bosque\",\"flechas\":{\"wood\":1}}")
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.flechas.wood").value(2))
+                .andExpect(jsonPath("$.flechas.wood").value(1))
                 .andExpect(jsonPath("$.flechas.iron").doesNotExist())
                 .andReturn().getResponse().getContentAsString()).get("id").asText();
         atirar("reembolsado", id, "{\"flecha\":\"iron\",\"acertos\":[]}").andExpect(status().isBadRequest());
@@ -485,20 +474,41 @@ class FlechaControllerTest {
     }
 
     @Test
-    void limiteDaAljavaContaAsGuardadas() throws Exception {
-        String id = abrirId("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":30}}");
+    void madeiraQueSobraNaoAcumulaENaoTravaAEntrada() throws Exception {
+        // sobram 38 de madeira: antes elas ficavam guardadas e as 10 novas passavam do limite de 40
+        String id = abrirId("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":38}}");
         encerrar("cheio", id).andExpect(status().isOk());
 
-        abrir("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":11}}")
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("A aljava comporta no maximo 40 flechas e voce ja tem 30 guardadas"));
-        // no vilarejo as 30 do pico nao contam
-        String vilarejo = abrirId("cheio", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":11}}");
-        encerrar("cheio", vilarejo).andExpect(status().isOk());
         abrir("cheio", "{\"campo\":\"pico\",\"flechas\":{\"wood\":10}}")
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.flechas.wood").value(40))
+                .andExpect(jsonPath("$.flechas.wood").value(10))
                 .andExpect(jsonPath("$.compradas.wood").value(10));
+    }
+
+    @Test
+    void oQueSeGanhaNoCampoJaCompraFlechasSemSair() throws Exception {
+        // carteira 20; pico (entrada 4 na tabela dos testes) + 2 flechas V100 de 8 = 20: tudo comprometido
+        when(walletClient.saldo("sortudo")).thenReturn(new BigDecimal("20.00"));
+        String id = objectMapper.readTree(mockMvc.perform(json(post("/jogos/flecha/sessoes"), "sortudo",
+                        "{\"campo\":\"pico\",\"flechas\":{},\"mercado\":[{\"flecha\":\"v100\",\"valor\":8,\"quantidade\":2}]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.custo").value(20.0))
+                .andReturn().getResponse().getContentAsString()).get("id").asText();
+        comprar("sortudo", id, "{\"flecha\":\"v100\",\"quantidade\":1,\"valor\":8}")
+                .andExpect(status().isUnprocessableEntity());
+
+        // uma aposta ganhou: voltaram 15,20 (valor da flecha + lucro), ainda com a rodada aberta
+        sessoes.findById(UUID.fromString(id)).ifPresent(s -> {
+            s.receberApostaDeMercado(new BigDecimal("15.20"), true);
+            sessoes.save(s);
+        });
+        comprar("sortudo", id, "{\"flecha\":\"v100\",\"quantidade\":1,\"valor\":8}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.custo").value(28.0));
+        // e nunca mais que o ganho: sobram 7,20, uma de 8 nao cabe
+        comprar("sortudo", id, "{\"flecha\":\"v100\",\"quantidade\":1,\"valor\":8}")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Saldo insuficiente: disponivel 7.20"));
     }
 
     @Test
@@ -764,9 +774,9 @@ class FlechaControllerTest {
         // a bitcoin que sobrou voltou: 9,98 - 10,5
         assertThat(evento.valorLiquido()).isEqualByComparingTo("-0.52");
         assertThat(evento.executadaEm()).isEqualTo(relogio.instant());
-        // a madeira que sobrou ficou guardada; a bitcoin nao
+        // nada fica guardado: nem a madeira que sobrou, nem a bitcoin (que voltou em moedas)
         aljava("dorminhoco")
-                .andExpect(jsonPath("$.campos.vilarejo.wood").value(1))
+                .andExpect(jsonPath("$.campos.vilarejo.wood").value(0))
                 .andExpect(jsonPath("$.mercado.btc").value(0));
     }
 
@@ -815,10 +825,10 @@ class FlechaControllerTest {
         assertThat(evento.valor()).isEqualByComparingTo("97.00");
         assertThat(evento.valorLiquido()).isEqualByComparingTo("-1.69");
         assertThat(evento.resultado()).isEqualTo("PERDEU");
-        // nada de mercado vai para a guarda; a madeira sim
+        // nada vai para a guarda: as de mercado voltaram em moedas e a madeira (gratis) saiu
         aljava("lotes").andExpect(jsonPath("$.mercado.btc").value(0))
                 .andExpect(jsonPath("$.mercado.eth").value(0))
-                .andExpect(jsonPath("$.campos.bosque.wood").value(11));
+                .andExpect(jsonPath("$.campos.bosque.wood").value(0));
         // a devolucao fica registrada na sessao (encerrar de novo so devolve)
         encerrar("lotes", id).andExpect(jsonPath("$.devolucaoFlechas.valorDevolvido").value(95.31));
     }

@@ -8,7 +8,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Saldo que o jogador ainda pode apostar: saldo da carteira menos o que ja esta comprometido em rodadas
- * abertas (ordens) e em sessoes abertas do Flecha Certeira. Usado por todos os jogos.
+ * abertas (ordens) e em sessoes abertas do Flecha Certeira. Na sessao aberta conta o custo MENOS o que ja voltou
+ * (apostas de mercado liquidadas): o que se ganha no campo ja pode ser usado sem sair dele. Usado por todos os jogos.
  */
 @Component
 public class SaldoDisponivel {
@@ -26,7 +27,7 @@ public class SaldoDisponivel {
     public BigDecimal calcular(String usuarioId) {
         return walletClient.saldo(usuarioId)
                 .subtract(ordens.somarValorEmAberto(usuarioId))
-                .subtract(sessoesFlecha.somarCustoEmAberto(usuarioId));
+                .subtract(sessoesFlecha.somarComprometidoEmAberto(usuarioId));
     }
 
     /** Recusa (422) se o disponivel nao cobre o valor. */

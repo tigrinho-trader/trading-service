@@ -44,9 +44,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Sessoes do Flecha Certeira: o servidor cobra entrada + flechas, confere cada tiro (plausibilidade) e manda o
  * resultado para a carteira ao encerrar. Passaros nao pagam moedas: so as apostas das flechas de mercado rendem.
  * As flechas de mercado tem o valor que o jogador escolhe (niveis de {@link RegrasFlecha#NIVEIS_FLECHA} ou qualquer
- * valor a partir de 1 moeda, com ate 2 casas) e ficam em lotes por tipo e valor. As comuns que sobram ficam
- * guardadas no campo onde foram compradas; as de mercado que sobram voltam em moedas ao encerrar, menos a taxa de
- * devolucao ({@code flecha.taxa-devolucao}).
+ * valor a partir de 1 moeda, com ate 2 casas) e ficam em lotes por tipo e valor. As flechas NAO acumulam entre
+ * rodadas: as de mercado que sobram voltam em moedas ao encerrar, menos a taxa de devolucao
+ * ({@code flecha.taxa-devolucao}), e a madeira que sobra (gratis) simplesmente sai.
  */
 @Service
 public class SessaoFlechaService {
@@ -101,10 +101,10 @@ public class SessaoFlechaService {
      * Abre uma sessao cobrando entrada + flechas novas, se o saldo disponivel cobrir: a madeira de {@code flechas} e
      * gratis e cada lote de {@code mercado} custa valor x quantidade (so dos ativos do campo; ferro, ouro e diamante
      * sairam do jogo). Flechas de mercado mandadas em {@code flechas} (clientes antigos) viram lotes do valor padrao
-     * ({@link RegrasFlecha#VALOR_FLECHA_PADRAO}). As flechas guardadas do campo e as de mercado guardadas (do preco
-     * fixo antigo, que entram como lotes de {@link RegrasFlecha#VALOR_FLECHA_ANTIGA}) entram na aljava sem custo; da
-     * para abrir sem comprar nada se houver ao menos uma guardada. A aljava comporta {@link RegrasFlecha#MAX_FLECHAS}:
-     * com mais guardadas que isso a sessao abre, mas sem comprar.
+     * ({@link RegrasFlecha#VALOR_FLECHA_PADRAO}). As de mercado guardadas (do preco fixo antigo, que entram como lotes
+     * de {@link RegrasFlecha#VALOR_FLECHA_ANTIGA}) entram na aljava sem custo e, se sobrarem, voltam em moedas; da
+     * para abrir sem comprar nada se houver ao menos uma. A madeira guardada de rodadas antigas (gratis) e descartada:
+     * as flechas nao acumulam mais. A aljava comporta {@link RegrasFlecha#MAX_FLECHAS}.
      */
     @Transactional
     public SessaoFlecha criar(String usuarioId, String slugCampo, Map<String, Integer> flechas,
@@ -122,10 +122,8 @@ public class SessaoFlechaService {
         if (repositorio.findFirstByUsuarioIdAndStatus(usuarioId, StatusSessao.ABERTA).isPresent()) {
             throw jaTemAberta();
         }
-        Optional<AljavaGuardada> doCampo = aljavas.findByUsuarioIdAndEscopo(usuarioId, campo.slug());
         Optional<AljavaGuardada> deMercado = aljavas.findByUsuarioIdAndEscopo(usuarioId, AljavaGuardada.MERCADO);
-        int quantasGuardadas = doCampo.map(g -> g.getFlechas().comuns().total()).orElse(0)
-                + deMercado.map(g -> g.getFlechas().deMercado().total()).orElse(0);
+        int quantasGuardadas = deMercado.map(g -> g.getFlechas().deMercado().total()).orElse(0);
         if (novas + quantasGuardadas < 1) {
             throw escolhaDeFlechas();
         }
@@ -135,9 +133,8 @@ public class SessaoFlechaService {
         }
         exigirSaldo(usuarioId, SessaoFlecha.custoAbertura(campo, comuns, lotes));
         Instant agora = relogio.instant();
-        Aljava trazidas = Aljava.soma(
-                doCampo.map(g -> retirar(g, agora).comuns()).orElseGet(Aljava::vazia),
-                deMercado.map(g -> retirar(g, agora).deMercado()).orElseGet(Aljava::vazia));
+        descartarMadeiraGuardada(usuarioId, agora);
+        Aljava trazidas = deMercado.map(g -> retirar(g, agora).deMercado()).orElseGet(Aljava::vazia);
         SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), usuarioId, campo, comuns, lotes, trazidas, agora);
         try {
             return repositorio.saveAndFlush(sessao);
@@ -185,6 +182,18 @@ public class SessaoFlechaService {
                     + " casas: " + valor.toPlainString());
         }
         return valor.setScale(RegrasFlecha.CASAS_VALOR_FLECHA);
+    }
+
+    /**
+     * Tira a madeira que ficou guardada nos campos em rodadas antigas (antes de as flechas pararem de acumular). E
+     * gratis: nao ha o que devolver. As antigas (ferro, ouro, diamante) ficam para o reembolso.
+     */
+    private void descartarMadeiraGuardada(String usuarioId, Instant agora) {
+        for (AljavaGuardada guardada : aljavas.findByUsuarioId(usuarioId)) {
+            if (!AljavaGuardada.MERCADO.equals(guardada.getEscopo()) && guardada.getFlechas().comuns().total() > 0) {
+                retirar(guardada, agora);
+            }
+        }
     }
 
     private Aljava retirar(AljavaGuardada guardada, Instant agora) {
@@ -250,7 +259,10 @@ public class SessaoFlechaService {
         return repositorio.findFirstByUsuarioIdAndStatus(usuarioId, StatusSessao.ABERTA);
     }
 
-    /** Flechas guardadas do jogador (fora da sessao aberta), com todos os campos. */
+    /**
+     * Flechas guardadas do jogador (fora da sessao aberta): so as de mercado do preco antigo. Os campos vem vazios:
+     * a madeira nao fica mais guardada entre rodadas (a que sobrou de antes sai na proxima rodada).
+     */
     @Transactional(readOnly = true)
     public Guardadas guardadas(String usuarioId) {
         Map<Campo, Aljava> porCampo = new EnumMap<>(Campo.class);
@@ -261,9 +273,6 @@ public class SessaoFlechaService {
         for (AljavaGuardada guardada : aljavas.findByUsuarioId(usuarioId)) {
             if (AljavaGuardada.MERCADO.equals(guardada.getEscopo())) {
                 mercado = Aljava.soma(mercado, guardada.getFlechas().deMercado());
-            } else {
-                Campo.porSlug(guardada.getEscopo())
-                        .ifPresent(campo -> porCampo.merge(campo, guardada.getFlechas().comuns(), Aljava::soma));
             }
         }
         return new Guardadas(porCampo, mercado);
@@ -420,13 +429,21 @@ public class SessaoFlechaService {
     }
 
     /**
-     * Guarda as flechas comuns que sobraram, devolve as de mercado (valor x quantidade menos a taxa de devolucao,
-     * somado ao resultado), grava (com flush, para um conflito de versao aparecer antes de avisar a carteira) e
-     * publica o resultado. Se a fila falhar, a transacao volta e a sessao continua ABERTA, com as flechas.
+     * Devolve as flechas de mercado que sobraram (valor x quantidade menos a taxa de devolucao, somado ao resultado),
+     * descarta a madeira que sobrou (gratis: as flechas nao acumulam), grava (com flush, para um conflito de versao
+     * aparecer antes de avisar a carteira) e publica o resultado. Se a fila falhar, a transacao volta e a sessao
+     * continua ABERTA, com as flechas.
      */
     private SessaoFlecha fechar(SessaoFlecha sessao, Instant agora) {
         Aljava sobra = sessao.encerrar(agora, propriedades.taxaDevolucao());
-        guardar(sessao.getUsuarioId(), sessao.getCampo().slug(), sobra, agora);
+        if (sobra.antigas() > 0) {
+            // ferro, ouro ou diamante de uma sessao de antes de sairem do jogo: vao para a guarda, onde sao
+            // reembolsadas (a madeira que for junto sai na proxima rodada)
+            AljavaGuardada guardada = aljavas.findByUsuarioIdAndEscopo(sessao.getUsuarioId(), sessao.getCampo().slug())
+                    .orElseGet(() -> new AljavaGuardada(sessao.getUsuarioId(), sessao.getCampo().slug(), agora));
+            guardada.guardar(sobra, agora);
+            aljavas.save(guardada);
+        }
         SessaoFlecha salva = repositorio.saveAndFlush(sessao);
         try {
             publisher.publicarSessaoFlecha(evento(salva));
@@ -434,16 +451,6 @@ public class SessaoFlechaService {
             throw new ServicoIndisponivelException("Fila indisponivel, tente encerrar de novo: " + e.getMessage());
         }
         return salva;
-    }
-
-    private void guardar(String usuarioId, String escopo, Aljava flechas, Instant agora) {
-        if (flechas.total() == 0 && flechas.antigas() == 0) {
-            return;
-        }
-        AljavaGuardada guardada = aljavas.findByUsuarioIdAndEscopo(usuarioId, escopo)
-                .orElseGet(() -> new AljavaGuardada(usuarioId, escopo, agora));
-        guardada.guardar(flechas, agora);
-        aljavas.save(guardada);
     }
 
     static SessaoFlechaEncerradaEvento evento(SessaoFlecha s) {

@@ -88,7 +88,7 @@ class SessaoFlechaServiceTest {
         OrdemRepository ordens = mock(OrdemRepository.class);
         publisher = mock(OrdemExecutadaPublisher.class);
         when(ordens.somarValorEmAberto(any())).thenReturn(BigDecimal.ZERO);
-        when(repositorio.somarCustoEmAberto(any())).thenReturn(BigDecimal.ZERO);
+        when(repositorio.somarComprometidoEmAberto(any())).thenReturn(BigDecimal.ZERO);
         when(repositorio.findFirstByUsuarioIdAndStatus(any(), any())).thenReturn(Optional.empty());
         when(repositorio.save(any(SessaoFlecha.class))).thenAnswer(inv -> inv.getArgument(0));
         when(repositorio.saveAndFlush(any(SessaoFlecha.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -151,15 +151,17 @@ class SessaoFlechaServiceTest {
     }
 
     @Test
-    void flechasAntigasGuardadasNaoEntramNaSessao() {
+    void flechasAntigasGuardadasNaoEntramNaSessaoEFicamParaOReembolso() {
         AljavaGuardada doBosque = guardada("bosque", Map.of(TipoFlecha.WOOD, 1));
         doBosque.guardar(Aljava.antigas(2, 0, 0), agora);
+        when(aljavas.findByUsuarioId("u1")).thenReturn(List.of(doBosque));
 
-        SessaoFlecha s = service.criar("u1", "bosque", Map.of());
+        SessaoFlecha s = service.criar("u1", "bosque", Map.of("wood", 1));
 
-        assertThat(s.getRestantes().total()).isEqualTo(1);
+        assertThat(s.getRestantes().total()).isEqualTo(1);              // so a madeira nova
         assertThat(s.getRestantes().antigas()).isZero();
         assertThat(doBosque.getFlechas().antigas()).isEqualTo(2);
+        assertThat(doBosque.getFlechas().get(TipoFlecha.WOOD)).isZero(); // a madeira guardada saiu
     }
 
     @Test
@@ -285,15 +287,17 @@ class SessaoFlechaServiceTest {
     }
 
     @Test
-    void abreComAsGuardadasDoCampoEAsDeMercadoSemCobrarPorElas() {
+    void abreComAsDeMercadoGuardadasSemCobrarEDescartaAMadeiraGuardada() {
         AljavaGuardada doBosque = guardada("bosque", Map.of(TipoFlecha.WOOD, 4));
         AljavaGuardada deMercado = guardada(AljavaGuardada.MERCADO, Map.of(TipoFlecha.BTC, 2));
+        when(aljavas.findByUsuarioId("u1")).thenReturn(List.of(doBosque, deMercado));
 
         SessaoFlecha s = service.criar("u1", "bosque", Map.of("wood", 1));
 
-        // so a entrada 1,5: a madeira e gratis e as guardadas ja foram pagas
+        // so a entrada 1,5: a madeira e gratis e as de mercado guardadas ja foram pagas
         assertThat(s.getCusto()).isEqualByComparingTo("1.5");
-        assertThat(s.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(5);
+        // a madeira guardada de rodadas antigas nao entra: as flechas nao acumulam mais
+        assertThat(s.getRestantes().get(TipoFlecha.WOOD)).isEqualTo(1);
         assertThat(s.getRestantes().get(TipoFlecha.BTC)).isEqualTo(2);
         assertThat(s.getCompradas().total()).isEqualTo(1);
         assertThat(doBosque.getFlechas().total()).isZero();
@@ -303,23 +307,40 @@ class SessaoFlechaServiceTest {
     }
 
     @Test
-    void comMaisGuardadasQueOLimiteAbreSemComprar() {
-        guardada("pico", Map.of(TipoFlecha.WOOD, 30));
-        guardada(AljavaGuardada.MERCADO, Map.of(TipoFlecha.ETH, 11));
+    void madeiraGuardadaNaoContaNoLimiteSoAsDeMercado() {
+        // o caso das 38 de madeira acumuladas: elas nao contam mais e nao travam a entrada com as 10 novas
+        guardada("pico", Map.of(TipoFlecha.WOOD, 38));
+        SessaoFlecha comDez = service.criar("u1", "pico", Map.of("wood", 10));
+        assertThat(comDez.getRestantes().total()).isEqualTo(10);
 
+        // as de mercado guardadas (do preco antigo) contam
+        guardada(AljavaGuardada.MERCADO, Map.of(TipoFlecha.ETH, 40));
+        when(repositorio.findFirstByUsuarioIdAndStatus("u1", StatusSessao.ABERTA)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.criar("u1", "pico", Map.of("wood", 1)))
                 .isInstanceOf(RegraNegocioException.class)
-                .hasMessage("A aljava comporta no maximo 40 flechas e voce ja tem 41 guardadas");
+                .hasMessage("A aljava comporta no maximo 40 flechas e voce ja tem 40 guardadas");
         assertThatThrownBy(() -> service.criar("u1", "pico", Map.of("wood", 41)))
                 .hasMessage("Escolha de 1 a 40 flechas");
 
         SessaoFlecha s = service.criar("u1", "pico", Map.of("wood", 0));
-        assertThat(s.getRestantes().total()).isEqualTo(41);
+        assertThat(s.getRestantes().total()).isEqualTo(40);
         assertThat(s.getCusto()).isEqualByComparingTo("4");
     }
 
     @Test
-    void encerrarGuardaAsComunsNoCampoEDevolveAsDeMercadoComATaxa() {
+    void encerrarNaoGuardaAMadeiraQueSobrou() {
+        SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.VILAREJO,
+                Aljava.de(Map.of(TipoFlecha.WOOD, 7)), agora);
+        when(repositorio.findByIdAndUsuarioId(s.getId(), "u1")).thenReturn(Optional.of(s));
+
+        service.encerrar("u1", s.getId());
+
+        assertThat(s.getRestantes().total()).isZero();
+        verify(aljavas, never()).save(any());   // nada fica guardado: a madeira e gratis, nao ha o que devolver
+    }
+
+    @Test
+    void encerrarComFlechaAntigaGuardaParaOReembolsoEDevolveAsDeMercadoComATaxa() {
         // sessao aberta antes de o ferro sair do jogo: o ferro que sobrou vai para a guarda, para o reembolso
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO,
                 Aljava.de(Map.of(TipoFlecha.WOOD, 2, TipoFlecha.OURO, 1)), Aljava.antigas(1, 0, 0), agora);
@@ -359,7 +380,7 @@ class SessaoFlechaServiceTest {
         SessaoFlechaService.Guardadas g = service.guardadas("u1");
 
         assertThat(g.porCampo()).hasSize(4);
-        assertThat(g.porCampo().get(Campo.VILAREJO).get(TipoFlecha.WOOD)).isEqualTo(5);
+        assertThat(g.porCampo().get(Campo.VILAREJO).total()).isZero();   // a madeira nao fica mais guardada
         assertThat(g.porCampo().get(Campo.RESERVA_REAL).total()).isZero();
         assertThat(g.mercado().get(TipoFlecha.ETH)).isEqualTo(2);
     }
@@ -435,11 +456,8 @@ class SessaoFlechaServiceTest {
         assertThat(evento.getValue().valor()).isEqualByComparingTo("0.5");
         assertThat(evento.getValue().valorLiquido()).isEqualByComparingTo("-0.5");
         assertThat(evento.getValue().executadaEm()).isEqualTo(agora);
-        // a madeira que sobrou fica guardada no vilarejo
-        ArgumentCaptor<AljavaGuardada> guardada = ArgumentCaptor.forClass(AljavaGuardada.class);
-        verify(aljavas).save(guardada.capture());
-        assertThat(guardada.getValue().getEscopo()).isEqualTo("vilarejo");
-        assertThat(guardada.getValue().getFlechas().get(TipoFlecha.WOOD)).isEqualTo(1);
+        // a madeira que sobrou nao fica guardada
+        verify(aljavas, never()).save(any());
     }
 
     @Test

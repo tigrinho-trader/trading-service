@@ -90,7 +90,7 @@ class OrdemServiceTest {
                 Clock.fixed(agora, ZoneOffset.UTC));
         when(repositorio.save(any(Ordem.class))).thenAnswer(inv -> inv.getArgument(0));
         when(repositorio.somarValorEmAberto("u1")).thenReturn(BigDecimal.ZERO);
-        when(sessoesFlecha.somarCustoEmAberto("u1")).thenReturn(BigDecimal.ZERO);
+        when(sessoesFlecha.somarComprometidoEmAberto("u1")).thenReturn(BigDecimal.ZERO);
     }
 
     private void preco(String simbolo, String valor) {
@@ -142,7 +142,7 @@ class OrdemServiceTest {
         preco("BTCUSDT", "100");
         when(wallet.saldo("u1")).thenReturn(new BigDecimal("100"));
         when(repositorio.somarValorEmAberto("u1")).thenReturn(new BigDecimal("30"));
-        when(sessoesFlecha.somarCustoEmAberto("u1")).thenReturn(new BigDecimal("50"));
+        when(sessoesFlecha.somarComprometidoEmAberto("u1")).thenReturn(new BigDecimal("50"));
 
         assertThatThrownBy(() -> service.criar("u1", "BTCUSDT", TipoOrdem.ALTA, new BigDecimal("21"), 30))
                 .isInstanceOf(RegraNegocioException.class)
