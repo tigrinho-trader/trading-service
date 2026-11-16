@@ -15,6 +15,9 @@ public interface SessaoFlechaRepository extends JpaRepository<SessaoFlecha, UUID
 
     Optional<SessaoFlecha> findByIdAndUsuarioId(UUID id, String usuarioId);
 
+    /** Sessoes criadas desde {@code desde} (painel: taxas de devolucao por perfil). */
+    List<SessaoFlecha> findByCriadaEmGreaterThanEqual(Instant desde);
+
     /** Sessoes abertas paradas desde antes do limite (o agendador encerra). */
     List<SessaoFlecha> findByStatusAndUltimaAtividadeEmBefore(StatusSessao status, Instant limite);
 

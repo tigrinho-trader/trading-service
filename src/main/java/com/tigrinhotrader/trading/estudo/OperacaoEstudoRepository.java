@@ -19,6 +19,9 @@ public interface OperacaoEstudoRepository extends JpaRepository<OperacaoEstudo, 
 
     Optional<OperacaoEstudo> findFirstByUsuarioIdOrderByCriadaEmDesc(String usuarioId);
 
+    /** Operacoes criadas desde {@code desde} (painel: ganhos e perdas por perfil). */
+    List<OperacaoEstudo> findByCriadaEmGreaterThanEqual(Instant desde);
+
     List<OperacaoEstudo> findByUsuarioIdAndStatus(String usuarioId, StatusOperacao status);
 
     List<OperacaoEstudo> findByUsuarioIdAndSessaoIdAndStatus(String usuarioId, UUID sessaoId, StatusOperacao status);

@@ -1,5 +1,7 @@
 package com.tigrinhotrader.trading.estudo;
 
+import com.tigrinhotrader.trading.painel.Poupanca;
+import com.tigrinhotrader.trading.painel.RegrasVigentes;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlechaRepository;
 import com.tigrinhotrader.trading.flecha.regras.Campo;
@@ -12,6 +14,7 @@ import com.tigrinhotrader.trading.servico.RecursoNaoEncontradoException;
 import com.tigrinhotrader.trading.servico.RegraNegocioException;
 import com.tigrinhotrader.trading.servico.RitmoExcedidoException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
@@ -108,6 +111,7 @@ public class OperacaoEstudoService {
     /** Simulacoes dos outros ativos, criadas no primeiro uso. */
     private final Map<String, Corretora> simuladas = new ConcurrentHashMap<>();
     private final Agendador agendador;
+    private final RegrasVigentes regras;
     private final EstudoProperties propriedades;
     private final PrecoCache precos;
     private final Clock relogio;
@@ -118,7 +122,7 @@ public class OperacaoEstudoService {
     public OperacaoEstudoService(OperacaoEstudoRepository operacoes, SessaoFlechaRepository sessoes,
                                  Corretora corretoraEstudo, Agendador agendador, EstudoProperties propriedades,
                                  PrecoCache precos, Clock relogio, OrdemExecutadaPublisher publisher,
-                                 PlatformTransactionManager transactionManager) {
+                                 PlatformTransactionManager transactionManager, RegrasVigentes regras) {
         this.operacoes = operacoes;
         this.sessoes = sessoes;
         this.corretora = corretoraEstudo;
@@ -128,6 +132,7 @@ public class OperacaoEstudoService {
         this.relogio = relogio;
         this.publisher = publisher;
         this.transacao = new TransactionTemplate(transactionManager);
+        this.regras = regras;
     }
 
     /**
@@ -253,15 +258,15 @@ public class OperacaoEstudoService {
     private Optional<String> travaDoModoReal(Instant agora) {
         Instant inicioDoDia = agora.truncatedTo(ChronoUnit.DAYS);
         if (operacoes.countByModoAndStatusNotAndCriadaEmGreaterThanEqual(ModoEstudo.REAL, StatusOperacao.RECUSADA,
-                inicioDoDia) >= propriedades.maxOperacoesDia()) {
+                inicioDoDia) >= regras.atual().maxOperacoesDia()) {
             return Optional.of("Limite de operacoes do dia atingido");
         }
         if (operacoes.countByModoAndStatusIn(ModoEstudo.REAL, List.of(StatusOperacao.ABRINDO, StatusOperacao.ABERTA))
-                >= propriedades.maxAbertas()) {
+                >= regras.atual().maxAbertas()) {
             return Optional.of("Muitas operacoes abertas ao mesmo tempo");
         }
         BigDecimal resultadoDoDia = operacoes.somarResultadoDesde(ModoEstudo.REAL, inicioDoDia);
-        if (resultadoDoDia.compareTo(propriedades.perdaMaximaDiaBrl().negate()) <= 0) {
+        if (resultadoDoDia.compareTo(regras.atual().perdaMaximaDiaBrl().negate()) <= 0) {
             return Optional.of("Perda maxima do dia atingida");
         }
         return Optional.empty();
@@ -375,7 +380,7 @@ public class OperacaoEstudoService {
         if (operacao == null || !operacao.aguardaLiquidacao()) {
             return;
         }
-        BigDecimal moedas = operacao.liquidar();
+        BigDecimal moedas = operacao.liquidar(regras.atual().taxaPoupanca());
         // flush antes de pagar: se outra liquidacao chegou primeiro, o conflito de versao aparece aqui
         operacoes.saveAndFlush(operacao);
         Optional<SessaoFlecha> aberta = sessoes.findById(operacao.getSessaoId()).filter(SessaoFlecha::isAberta);
@@ -386,6 +391,20 @@ public class OperacaoEstudoService {
         } else if (moedas.signum() > 0) {
             publisher.publicarSessaoFlecha(pagamento(operacao, relogio.instant()));
         }
+        if (operacao.getPoupancaMoedas() != null) {
+            publisher.publicarSessaoFlecha(poupanca(operacao, relogio.instant()));
+        }
+    }
+
+    /**
+     * A parte poupada de uma flecha vencedora, para a carteira de poupanca do super-admin, no formato que a carteira
+     * consome (idempotente pelo ordemId, derivado da operacao).
+     */
+    static SessaoFlechaEncerradaEvento poupanca(OperacaoEstudo o, Instant agora) {
+        UUID referencia = UUID.nameUUIDFromBytes(("poupanca-" + o.getId()).getBytes(StandardCharsets.UTF_8));
+        BigDecimal poupado = o.getPoupancaMoedas();
+        return new SessaoFlechaEncerradaEvento(referencia, Poupanca.CARTEIRA, o.getSimbolo(), Poupanca.TIPO_EVENTO,
+                poupado, "GANHOU", poupado, agora, poupado, 0);
     }
 
     /**

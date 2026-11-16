@@ -53,8 +53,18 @@ public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> 
         }
     }
 
-    /** As regras de hoje, com a taxa de devolucao configurada ({@code flecha.taxa-devolucao}). */
+    /** As regras de hoje, com a taxa de devolucao informada e os niveis e o valor minimo padrao. */
     public static RegrasFlechaResponse atuais(BigDecimal taxaDevolucao) {
+        return atuais(RegrasFlecha.NIVEIS_FLECHA, RegrasFlecha.VALOR_MINIMO_FLECHA, taxaDevolucao);
+    }
+
+    /** As regras em vigor (as do painel do super-admin por cima das do ambiente). */
+    public static RegrasFlechaResponse atuais(com.tigrinhotrader.trading.painel.Configuracao c) {
+        return atuais(c.niveis(), c.valorMinimo(), c.taxaDevolucao());
+    }
+
+    private static RegrasFlechaResponse atuais(java.util.List<Integer> niveis, BigDecimal minimo,
+                                               BigDecimal taxaDevolucao) {
         Map<String, Integer> passaros = new LinkedHashMap<>();
         for (Passaro p : Passaro.values()) {
             passaros.put(p.id(), p.moedas());
@@ -65,8 +75,8 @@ public record RegrasFlechaResponse(List<CampoInfo> campos, Map<String, Integer> 
                 Arrays.stream(TipoFlecha.values()).map(FlechaInfo::de).toList(),
                 RegrasFlecha.MAX_FLECHAS,
                 RegrasFlecha.MAX_COMBO,
-                RegrasFlecha.NIVEIS_FLECHA,
-                RegrasFlecha.VALOR_MINIMO_FLECHA,
+                niveis,
+                minimo,
                 taxaDevolucao);
     }
 }

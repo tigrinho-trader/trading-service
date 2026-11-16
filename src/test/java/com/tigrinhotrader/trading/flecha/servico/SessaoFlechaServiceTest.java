@@ -95,7 +95,8 @@ class SessaoFlechaServiceTest {
         when(wallet.saldo("u1")).thenReturn(new BigDecimal("1000"));
         service = new SessaoFlechaService(repositorio, aljavas, new SaldoDisponivel(wallet, ordens, repositorio),
                 publisher, new FlechaProperties(null, null, new BigDecimal("0.002")), new TransacaoFalsa(),
-                Clock.fixed(agora, ZoneOffset.UTC));
+                Clock.fixed(agora, ZoneOffset.UTC), () -> com.tigrinhotrader.trading.painel.Configuracao.doAmbiente(
+                        new FlechaProperties(null, null, new BigDecimal("0.002")), null, false));
     }
 
     private SessaoFlecha aberta(Instant atividade) {

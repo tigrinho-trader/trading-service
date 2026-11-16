@@ -116,6 +116,15 @@ public class OperacaoEstudo {
      * Ticks reais do contrato (opcao da Deriv): o preco e a hora em que ele comecou e terminou. O jogo desenha o
      * passaro da flecha por eles. Nulos nas outras corretoras e enquanto nao chegam.
      */
+    /**
+     * Parte do pagamento de uma flecha vencedora que foi para a carteira de poupanca do super-admin (taxa de
+     * poupanca do painel, guardada em {@code taxaPoupanca}). Nula sem poupanca. O jogador nao ve: so recebe o resto.
+     */
+    @Column(precision = 14, scale = 2)
+    private BigDecimal poupancaMoedas;
+    @Column(precision = 6, scale = 4)
+    private BigDecimal taxaPoupanca;
+
     @Column(precision = 18, scale = 8)
     private BigDecimal precoEntradaContrato;
     private Instant entradaEm;
@@ -244,6 +253,15 @@ public class OperacaoEstudo {
      * @return moedas pagas ao jogador
      */
     public BigDecimal liquidar() {
+        return liquidar(BigDecimal.ZERO);
+    }
+
+    /**
+     * Liquida com a taxa de poupanca do painel: numa flecha que ganhou (pagamento acima da aposta), essa fracao do
+     * pagamento vai para a poupanca ({@link #getPoupancaMoedas()}) e o jogador recebe o resto. Ex.: aposta 10 que
+     * pagaria 19 com taxa 5%: poupa 0,95 e paga 18,05 (lucro de 8,05). Perda, empate e devolucao nao poupam nada.
+     */
+    public BigDecimal liquidar(BigDecimal taxaPoupanca) {
         if (!aguardaLiquidacao()) {
             throw new IllegalStateException("Operacao " + id + " nao aguarda liquidacao");
         }
@@ -257,8 +275,22 @@ public class OperacaoEstudo {
                 default -> NADA;
             };
         }
-        moedasPagas = pagas.setScale(2, RoundingMode.HALF_UP).max(NADA);
+        pagas = pagas.setScale(2, RoundingMode.HALF_UP).max(NADA);
+        if (taxaPoupanca != null && taxaPoupanca.signum() > 0 && pagas.compareTo(apostaMoedas) > 0) {
+            BigDecimal poupado = pagas.multiply(taxaPoupanca).setScale(2, RoundingMode.HALF_UP);
+            if (poupado.signum() > 0) {
+                this.poupancaMoedas = poupado;
+                this.taxaPoupanca = taxaPoupanca;
+                pagas = pagas.subtract(poupado);
+            }
+        }
+        moedasPagas = pagas;
         return moedasPagas;
+    }
+
+    /** Moedas desta flecha que foram para a poupanca do super-admin (nula se nada). */
+    public BigDecimal getPoupancaMoedas() {
+        return poupancaMoedas;
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.tigrinhotrader.trading.flecha.servico;
 
+import com.tigrinhotrader.trading.painel.RegrasVigentes;
 import com.tigrinhotrader.trading.flecha.dominio.Aljava;
 import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardada;
 import com.tigrinhotrader.trading.flecha.dominio.AljavaGuardadaRepository;
@@ -77,11 +78,12 @@ public class SessaoFlechaService {
     private final FlechaProperties propriedades;
     private final TransactionTemplate transacao;
     private final Clock relogio;
+    private final RegrasVigentes regras;
 
     public SessaoFlechaService(SessaoFlechaRepository repositorio, AljavaGuardadaRepository aljavas,
                                SaldoDisponivel saldoDisponivel, OrdemExecutadaPublisher publisher,
                                FlechaProperties propriedades, PlatformTransactionManager transactionManager,
-                               Clock relogio) {
+                               Clock relogio, RegrasVigentes regras) {
         this.repositorio = repositorio;
         this.aljavas = aljavas;
         this.saldoDisponivel = saldoDisponivel;
@@ -89,6 +91,7 @@ public class SessaoFlechaService {
         this.propriedades = propriedades;
         this.transacao = new TransactionTemplate(transactionManager);
         this.relogio = relogio;
+        this.regras = regras;
     }
 
     /** Abre uma sessao so com o mapa de flechas (sem lotes de mercado com valor). */
@@ -114,7 +117,7 @@ public class SessaoFlechaService {
         Aljava pedido = pedido(campo, flechas);
         Aljava comuns = pedido.comuns();
         List<LoteFlecha> lotes = new ArrayList<>(SessaoFlecha.lotesPadrao(pedido.deMercado()));
-        lotes.addAll(lotesPedidos(campo, mercado == null ? List.of() : mercado));
+        lotes.addAll(lotesPedidos(campo, mercado == null ? List.of() : mercado, regras.atual().valorMinimo()));
         long novas = comuns.total() + lotes.stream().mapToLong(LoteFlecha::quantidade).sum();
         if (novas > RegrasFlecha.MAX_FLECHAS) {
             throw escolhaDeFlechas();
@@ -148,7 +151,7 @@ public class SessaoFlechaService {
      * Lotes de mercado pedidos ao abrir: so flechas de mercado de ativos do campo, quantidade 0 ou mais (0 e
      * ignorado) e valor valido ({@link #valorFlecha}).
      */
-    private static List<LoteFlecha> lotesPedidos(Campo campo, List<PedidoLote> mercado) {
+    private static List<LoteFlecha> lotesPedidos(Campo campo, List<PedidoLote> mercado, BigDecimal minimo) {
         List<LoteFlecha> lotes = new ArrayList<>();
         for (PedidoLote lote : mercado) {
             TipoFlecha tipo = tipoFlecha(lote.flecha());
@@ -160,25 +163,25 @@ public class SessaoFlechaService {
             }
             if (lote.quantidade() > 0) {
                 exigirNoCampo(campo, tipo);
-                lotes.add(new LoteFlecha(tipo, valorFlecha(tipo, lote.valor()), lote.quantidade()));
+                lotes.add(new LoteFlecha(tipo, valorFlecha(tipo, lote.valor(), minimo), lote.quantidade()));
             }
         }
         return lotes;
     }
 
     /**
-     * Valor de uma flecha de mercado escolhido pelo jogador: obrigatorio, pelo menos
-     * {@link RegrasFlecha#VALOR_MINIMO_FLECHA} moeda e com ate {@link RegrasFlecha#CASAS_VALOR_FLECHA} casas, sem
-     * teto (so o saldo limita). Devolve com 2 casas; invalido e 422.
+     * Valor de uma flecha de mercado escolhido pelo jogador: obrigatorio, pelo menos {@code minimo} moeda (o valor
+     * minimo do painel; padrao {@link RegrasFlecha#VALOR_MINIMO_FLECHA}) e com ate
+     * {@link RegrasFlecha#CASAS_VALOR_FLECHA} casas, sem teto (so o saldo limita). Devolve com 2 casas; invalido e 422.
      */
-    static BigDecimal valorFlecha(TipoFlecha tipo, BigDecimal valor) {
+    static BigDecimal valorFlecha(TipoFlecha tipo, BigDecimal valor, BigDecimal minimo) {
         if (valor == null) {
             throw new RegraNegocioException("Informe o valor das flechas " + tipo.nome());
         }
-        if (valor.compareTo(RegrasFlecha.VALOR_MINIMO_FLECHA) < 0
+        if (valor.compareTo(minimo) < 0
                 || valor.stripTrailingZeros().scale() > RegrasFlecha.CASAS_VALOR_FLECHA) {
             throw new RegraNegocioException("O valor de uma flecha " + tipo.nome() + " e de pelo menos "
-                    + RegrasFlecha.VALOR_MINIMO_FLECHA + " moeda, com ate " + RegrasFlecha.CASAS_VALOR_FLECHA
+                    + minimo.stripTrailingZeros().toPlainString() + " moeda, com ate " + RegrasFlecha.CASAS_VALOR_FLECHA
                     + " casas: " + valor.toPlainString());
         }
         return valor.setScale(RegrasFlecha.CASAS_VALOR_FLECHA);
@@ -333,7 +336,7 @@ public class SessaoFlechaService {
         if (sessao.getRestantes().total() + quantidade > RegrasFlecha.MAX_FLECHAS) {
             throw new RegraNegocioException("A aljava comporta no maximo " + RegrasFlecha.MAX_FLECHAS + " flechas");
         }
-        BigDecimal valorFlecha = tipo.deMercado() ? valorFlecha(tipo, valor) : null;
+        BigDecimal valorFlecha = tipo.deMercado() ? valorFlecha(tipo, valor, regras.atual().valorMinimo()) : null;
         BigDecimal extra = (valorFlecha == null ? sessao.getCampo().custoFlecha(tipo) : valorFlecha)
                 .multiply(BigDecimal.valueOf(quantidade));
         exigirSaldo(usuarioId, extra);
@@ -435,7 +438,7 @@ public class SessaoFlechaService {
      * continua ABERTA, com as flechas.
      */
     private SessaoFlecha fechar(SessaoFlecha sessao, Instant agora) {
-        Aljava sobra = sessao.encerrar(agora, propriedades.taxaDevolucao());
+        Aljava sobra = sessao.encerrar(agora, regras.atual().taxaDevolucao());
         if (sobra.antigas() > 0) {
             // ferro, ouro ou diamante de uma sessao de antes de sairem do jogo: vao para a guarda, onde sao
             // reembolsadas (a madeira que for junto sai na proxima rodada)

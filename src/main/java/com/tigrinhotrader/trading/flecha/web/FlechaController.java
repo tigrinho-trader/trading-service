@@ -1,7 +1,6 @@
 package com.tigrinhotrader.trading.flecha.web;
 
 import com.tigrinhotrader.trading.cliente.WalletClient;
-import com.tigrinhotrader.trading.flecha.servico.FlechaProperties;
 import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService;
 import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService.ResultadoTiro;
 import jakarta.validation.Valid;
@@ -30,16 +29,17 @@ public class FlechaController {
     }
 
     private final SessaoFlechaService service;
-    private final FlechaProperties propriedades;
+    private final com.tigrinhotrader.trading.painel.RegrasVigentes regras;
 
-    public FlechaController(SessaoFlechaService service, FlechaProperties propriedades) {
+    public FlechaController(SessaoFlechaService service, com.tigrinhotrader.trading.painel.RegrasVigentes regras) {
         this.service = service;
-        this.propriedades = propriedades;
+        this.regras = regras;
     }
 
+    /** Regras publicas: as do painel do super-admin por cima das do ambiente. */
     @GetMapping("/regras")
     public RegrasFlechaResponse regras() {
-        return RegrasFlechaResponse.atuais(propriedades.taxaDevolucao());
+        return RegrasFlechaResponse.atuais(regras.atual());
     }
 
     /** Flechas guardadas de rodadas anteriores: as comuns por campo e as de mercado, que valem em todos. */

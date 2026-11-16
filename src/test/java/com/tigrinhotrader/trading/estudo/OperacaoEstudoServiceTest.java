@@ -53,7 +53,8 @@ class OperacaoEstudoServiceTest {
                 null);
         // o gerenciador de transacao falso so deixa o TransactionTemplate rodar o codigo
         return new OperacaoEstudoService(operacoes, sessoes, corretora, agendador, p, new PrecoCache(),
-                Clock.fixed(AGORA, ZoneOffset.UTC), publisher, mock(PlatformTransactionManager.class));
+                Clock.fixed(AGORA, ZoneOffset.UTC), publisher, mock(PlatformTransactionManager.class),
+                () -> com.tigrinhotrader.trading.painel.Configuracao.doAmbiente(null, p, false));
     }
 
     @Test
@@ -235,6 +236,56 @@ class OperacaoEstudoServiceTest {
             assertThat(o.acertouAposta()).as("acertou %s %s", caso[0], caso[1]).isEqualTo(caso[4]);
             assertThat(o.aguardaLiquidacao()).isFalse();
         }
+    }
+
+    @Test
+    void taxaDePoupancaTiraAParteDoGanhoEGuardaNaPoupanca() {
+        // aposta de 10 que pagaria 19 (lucro 9) com 5% de poupanca: paga 18,05 (lucro de 8,05) e poupa 0,95
+        OperacaoEstudo ganhou = criarTerminada(StatusOperacao.FECHADA, "109", UUID.randomUUID());
+        assertThat(ganhou.liquidar(new BigDecimal("0.05"))).isEqualByComparingTo("18.05").hasScaleOf(2);
+        assertThat(ganhou.getPoupancaMoedas()).isEqualByComparingTo("0.95");
+        assertThat(ganhou.ganhouAposta()).isTrue();
+
+        // perda, empate e operacao que nao aconteceu nao poupam nada
+        for (Object[] caso : new Object[][] {{StatusOperacao.FECHADA, "90", "0.00"}, {StatusOperacao.FECHADA, "100", "10.00"},
+                {StatusOperacao.FALHOU, null, "10.00"}}) {
+            OperacaoEstudo o = criarTerminada((StatusOperacao) caso[0], (String) caso[1], UUID.randomUUID());
+            assertThat(o.liquidar(new BigDecimal("0.05"))).isEqualByComparingTo((String) caso[2]);
+            assertThat(o.getPoupancaMoedas()).isNull();
+        }
+
+        SessaoFlechaEncerradaEvento evento = OperacaoEstudoService.poupanca(ganhou, AGORA);
+        assertThat(evento.usuarioId()).isEqualTo(com.tigrinhotrader.trading.painel.Poupanca.CARTEIRA);
+        assertThat(evento.valorLiquido()).isEqualByComparingTo("0.95");
+        assertThat(evento.tipo()).isEqualTo("POUPANCA");
+        // mesmo id em cada envio: a carteira aplica uma vez so
+        assertThat(OperacaoEstudoService.poupanca(ganhou, AGORA).ordemId()).isEqualTo(evento.ordemId())
+                .isNotEqualTo(ganhou.getId());
+    }
+
+    @Test
+    void liquidacaoComPoupancaMandaOPagamentoAoJogadorEAParteGuardadaParaACarteiraDePoupanca() {
+        EstudoProperties p = new EstudoProperties(null, null, null, 0, null, null, null, 2, 0, null, null, false, null,
+                null);
+        com.tigrinhotrader.trading.painel.Configuracao comPoupanca = new com.tigrinhotrader.trading.painel.Configuracao(
+                new BigDecimal("0.05"), new BigDecimal("0.01"), false, List.of(10, 20, 30), BigDecimal.ONE, 300, 5,
+                new BigDecimal("50"));
+        OperacaoEstudoService servico = new OperacaoEstudoService(operacoes, sessoes, corretora, agendador, p,
+                new PrecoCache(), Clock.fixed(AGORA, ZoneOffset.UTC), publisher, mock(PlatformTransactionManager.class),
+                () -> comPoupanca);
+        OperacaoEstudo o = criarTerminada(StatusOperacao.FECHADA, "109", UUID.randomUUID());
+        when(operacoes.findById(o.getId())).thenReturn(Optional.of(o));
+        when(sessoes.findById(any())).thenReturn(Optional.empty());    // sessao ja encerrada: vai direto a carteira
+
+        servico.liquidar(o.getId());
+
+        ArgumentCaptor<SessaoFlechaEncerradaEvento> eventos = ArgumentCaptor.forClass(SessaoFlechaEncerradaEvento.class);
+        verify(publisher, times(2)).publicarSessaoFlecha(eventos.capture());
+        assertThat(eventos.getAllValues().get(0).usuarioId()).isEqualTo("u");
+        assertThat(eventos.getAllValues().get(0).valorLiquido()).isEqualByComparingTo("18.05");
+        assertThat(eventos.getAllValues().get(1).usuarioId())
+                .isEqualTo(com.tigrinhotrader.trading.painel.Poupanca.CARTEIRA);
+        assertThat(eventos.getAllValues().get(1).valorLiquido()).isEqualByComparingTo("0.95");
     }
 
     @Test
