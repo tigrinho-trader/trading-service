@@ -47,6 +47,8 @@ class OperacaoEstudoServiceTest {
     private final Corretora corretora = mock(Corretora.class);
     private final Agendador agendador = mock(Agendador.class);
     private final OrdemExecutadaPublisher publisher = mock(OrdemExecutadaPublisher.class);
+    private final com.tigrinhotrader.trading.servico.SaldoDisponivel saldo =
+            mock(com.tigrinhotrader.trading.servico.SaldoDisponivel.class);
 
     private OperacaoEstudoService servico(boolean revisao) {
         EstudoProperties p = new EstudoProperties(null, null, null, 0, null, null, null, 2, 0, null, null, revisao, null,
@@ -54,7 +56,7 @@ class OperacaoEstudoServiceTest {
         // o gerenciador de transacao falso so deixa o TransactionTemplate rodar o codigo
         return new OperacaoEstudoService(operacoes, sessoes, corretora, agendador, p, new PrecoCache(),
                 Clock.fixed(AGORA, ZoneOffset.UTC), publisher, mock(PlatformTransactionManager.class),
-                () -> com.tigrinhotrader.trading.painel.Configuracao.doAmbiente(null, p, false));
+                () -> com.tigrinhotrader.trading.painel.Configuracao.doAmbiente(null, p, false), saldo);
     }
 
     @Test
@@ -79,6 +81,41 @@ class OperacaoEstudoServiceTest {
         assertThat(o.getTipo()).isEqualTo(TipoPrevisao.BINARIA);
         assertThat(o.getSimbolo()).isEqualTo("BTCUSDT");
         verifyNoInteractions(agendador);
+    }
+
+    @Test
+    void modoInfinitoCompraAFlechaNaHoraDoTiroSeOSaldoCobre() {
+        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), "u", Campo.BOSQUE,
+                Aljava.de(Map.of(TipoFlecha.WOOD, 10)), List.of(), Aljava.vazia(), AGORA);
+        sessao.tornarInfinita();
+        when(sessoes.findByIdAndUsuarioId(any(), eq("u"))).thenReturn(Optional.of(sessao));
+        when(operacoes.findFirstByUsuarioIdOrderByCriadaEmDesc("u")).thenReturn(Optional.empty());
+        when(operacoes.save(any())).thenAnswer(i -> i.getArgument(0));
+        BigDecimal entrada = sessao.getCusto();                              // so a entrada do campo
+
+        OperacaoEstudo o = servico(false).registrar("u", sessao.getId(), "ETHUSDT", "ALTA", BigDecimal.ONE, null,
+                new BigDecimal("12.5")).operacao();
+
+        verify(saldo).exigir("u", new BigDecimal("12.50"));
+        assertThat(o.getApostaMoedas()).isEqualByComparingTo("12.5");
+        assertThat(sessao.getCusto()).isEqualByComparingTo(entrada.add(new BigDecimal("12.5")));   // a flecha entrou no custo
+        assertThat(sessao.getLotesMercado()).isEmpty();                     // e foi usada
+        assertThat(sessao.getDisparadas().get(TipoFlecha.ETH)).isEqualTo(1);
+    }
+
+    @Test
+    void modoInfinitoSemSaldoRecusaANovaFlecha() {
+        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), "u", Campo.BOSQUE,
+                Aljava.de(Map.of(TipoFlecha.WOOD, 10)), List.of(), Aljava.vazia(), AGORA);
+        sessao.tornarInfinita();
+        when(sessoes.findByIdAndUsuarioId(any(), eq("u"))).thenReturn(Optional.of(sessao));
+        doThrow(new com.tigrinhotrader.trading.servico.RegraNegocioException("Saldo insuficiente: disponivel 3"))
+                .when(saldo).exigir("u", new BigDecimal("10.00"));
+        BigDecimal entrada = sessao.getCusto();
+
+        assertThatThrownBy(() -> servico(false).registrar("u", sessao.getId(), "ETHUSDT", "ALTA", BigDecimal.ONE,
+                null, BigDecimal.TEN)).hasMessageContaining("Saldo insuficiente");
+        assertThat(sessao.getCusto()).isEqualByComparingTo(entrada);
     }
 
     @Test
@@ -272,7 +309,7 @@ class OperacaoEstudoServiceTest {
                 new BigDecimal("50"));
         OperacaoEstudoService servico = new OperacaoEstudoService(operacoes, sessoes, corretora, agendador, p,
                 new PrecoCache(), Clock.fixed(AGORA, ZoneOffset.UTC), publisher, mock(PlatformTransactionManager.class),
-                () -> comPoupanca);
+                () -> comPoupanca, saldo);
         OperacaoEstudo o = criarTerminada(StatusOperacao.FECHADA, "109", UUID.randomUUID());
         when(operacoes.findById(o.getId())).thenReturn(Optional.of(o));
         when(sessoes.findById(any())).thenReturn(Optional.empty());    // sessao ja encerrada: vai direto a carteira

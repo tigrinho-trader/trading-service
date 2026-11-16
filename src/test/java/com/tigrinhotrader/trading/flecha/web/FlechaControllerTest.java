@@ -159,6 +159,27 @@ class FlechaControllerTest {
     }
 
     @Test
+    void modoInfinitoAbreSoComAEntradaEAMadeiraNuncaAcaba() throws Exception {
+        String id = objectMapper.readTree(abrir("infinito-1", """
+                        {"campo":"bosque","flechas":{"wood":0},"mercado":[{"flecha":"btc","valor":10,"quantidade":5}],
+                         "infinita":true}
+                        """)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.infinita").value(true))
+                .andExpect(jsonPath("$.flechas.wood").value(10))
+                .andExpect(jsonPath("$.mercado").isEmpty())                 // nada de mercado comprado antes
+                .andExpect(jsonPath("$.custo").value(1.5))                  // so a entrada do bosque (tabela nos testes)
+                .andReturn().getResponse().getContentAsString()).get("id").asText();
+
+        for (int i = 0; i < 12; i++) {                                     // mais que as 10 de madeira
+            relogio.avancar(java.time.Duration.ofSeconds(1));
+            atirar("infinito-1", id, "{\"flecha\":\"wood\",\"acertos\":[]}").andExpect(status().isOk());
+        }
+        abrir("infinito-2", "{\"campo\":\"bosque\",\"flechas\":{\"wood\":5}}")
+                .andExpect(jsonPath("$.infinita").value(false));
+    }
+
+    @Test
     void regrasSaoPublicas() throws Exception {
         mockMvc.perform(get("/jogos/flecha/regras"))
                 .andExpect(status().isOk())

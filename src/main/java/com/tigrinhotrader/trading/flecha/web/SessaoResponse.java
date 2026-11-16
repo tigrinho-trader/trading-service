@@ -17,7 +17,7 @@ import java.util.UUID;
 public record SessaoResponse(UUID id, String campo, StatusSessao status, BigDecimal custo, BigDecimal ganhos,
                              BigDecimal resultado, Map<String, Integer> flechas, List<Lote> mercado,
                              Map<String, Integer> compradas, Map<String, Integer> disparadas, int acertos,
-                             Devolucao devolucaoFlechas, Instant criadaEm, Instant encerradaEm) {
+                             Devolucao devolucaoFlechas, Instant criadaEm, Instant encerradaEm, boolean infinita) {
 
     /** {@code {"flecha":"btc","valor":10.00,"quantidade":2}}. */
     public record Lote(String flecha, BigDecimal valor, int quantidade) {
@@ -34,6 +34,7 @@ public record SessaoResponse(UUID id, String campo, StatusSessao status, BigDeci
                 s.getDevolucaoValor());
         return new SessaoResponse(s.getId(), s.getCampo().slug(), s.getStatus(), s.getCusto(), s.getGanhos(),
                 s.resultado(), s.getRestantes().comoMapa(), mercado, s.getCompradas().comoMapa(),
-                s.getDisparadas().comoMapa(), s.getAcertos(), devolucao, s.getCriadaEm(), s.getEncerradaEm());
+                s.getDisparadas().comoMapa(), s.getAcertos(), devolucao, s.getCriadaEm(), s.getEncerradaEm(),
+                s.isInfinita());
     }
 }

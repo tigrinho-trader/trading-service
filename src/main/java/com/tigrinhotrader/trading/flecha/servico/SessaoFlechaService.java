@@ -112,6 +112,20 @@ public class SessaoFlechaService {
     @Transactional
     public SessaoFlecha criar(String usuarioId, String slugCampo, Map<String, Integer> flechas,
                               List<PedidoLote> mercado) {
+        return criar(usuarioId, slugCampo, flechas, mercado, false);
+    }
+
+    /**
+     * Abre a sessao no modo pre-pago (como acima) ou no infinito: so a entrada e cobrada, as flechas de mercado sao
+     * compradas uma a uma na hora do tiro (ver {@link SessaoFlecha#garantirFlechaDeMercado}) e a madeira (gratis)
+     * nunca acaba. No infinito os lotes pedidos sao ignorados e as flechas guardadas ficam guardadas.
+     */
+    @Transactional
+    public SessaoFlecha criar(String usuarioId, String slugCampo, Map<String, Integer> flechas,
+                              List<PedidoLote> mercado, boolean infinita) {
+        if (infinita) {
+            return criarInfinita(usuarioId, slugCampo);
+        }
         Campo campo = Campo.porSlug(slugCampo)
                 .orElseThrow(() -> new RegraNegocioException("Campo desconhecido: " + slugCampo));
         Aljava pedido = pedido(campo, flechas);
@@ -147,6 +161,26 @@ public class SessaoFlechaService {
         }
     }
 
+    private SessaoFlecha criarInfinita(String usuarioId, String slugCampo) {
+        Campo campo = Campo.porSlug(slugCampo)
+                .orElseThrow(() -> new RegraNegocioException("Campo desconhecido: " + slugCampo));
+        if (repositorio.findFirstByUsuarioIdAndStatus(usuarioId, StatusSessao.ABERTA).isPresent()) {
+            throw jaTemAberta();
+        }
+        Aljava madeira = Aljava.de(Map.of(TipoFlecha.WOOD, SessaoFlecha.MADEIRA_INFINITA));
+        exigirSaldo(usuarioId, SessaoFlecha.custoAbertura(campo, madeira, List.of()));
+        Instant agora = relogio.instant();
+        descartarMadeiraGuardada(usuarioId, agora);
+        SessaoFlecha sessao = new SessaoFlecha(UUID.randomUUID(), usuarioId, campo, madeira, List.of(), Aljava.vazia(),
+                agora);
+        sessao.tornarInfinita();
+        try {
+            return repositorio.saveAndFlush(sessao);
+        } catch (DataIntegrityViolationException e) {
+            throw jaTemAberta();
+        }
+    }
+
     /**
      * Lotes de mercado pedidos ao abrir: so flechas de mercado de ativos do campo, quantidade 0 ou mais (0 e
      * ignorado) e valor valido ({@link #valorFlecha}).
@@ -174,7 +208,7 @@ public class SessaoFlechaService {
      * minimo do painel; padrao {@link RegrasFlecha#VALOR_MINIMO_FLECHA}) e com ate
      * {@link RegrasFlecha#CASAS_VALOR_FLECHA} casas, sem teto (so o saldo limita). Devolve com 2 casas; invalido e 422.
      */
-    static BigDecimal valorFlecha(TipoFlecha tipo, BigDecimal valor, BigDecimal minimo) {
+    public static BigDecimal valorFlecha(TipoFlecha tipo, BigDecimal valor, BigDecimal minimo) {
         if (valor == null) {
             throw new RegraNegocioException("Informe o valor das flechas " + tipo.nome());
         }
@@ -292,6 +326,9 @@ public class SessaoFlechaService {
         TipoFlecha tipo = tipoFlecha(flecha);
         if (tipo.deMercado()) {
             throw new RegraNegocioException("Flechas de mercado sao registradas pelo estudo");
+        }
+        if (tipo == TipoFlecha.WOOD) {
+            sessao.garantirMadeira(relogio.instant());   // modo infinito: a madeira nunca acaba
         }
         if (sessao.getRestantes().get(tipo) <= 0) {
             throw new RegraNegocioException("Sem flechas de " + tipo.nome() + " na aljava");

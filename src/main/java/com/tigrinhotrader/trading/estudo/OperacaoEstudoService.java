@@ -1,5 +1,7 @@
 package com.tigrinhotrader.trading.estudo;
 
+import com.tigrinhotrader.trading.flecha.servico.SessaoFlechaService;
+import com.tigrinhotrader.trading.servico.SaldoDisponivel;
 import com.tigrinhotrader.trading.painel.Poupanca;
 import com.tigrinhotrader.trading.painel.RegrasVigentes;
 import com.tigrinhotrader.trading.flecha.dominio.SessaoFlecha;
@@ -112,6 +114,7 @@ public class OperacaoEstudoService {
     private final Map<String, Corretora> simuladas = new ConcurrentHashMap<>();
     private final Agendador agendador;
     private final RegrasVigentes regras;
+    private final SaldoDisponivel saldoDisponivel;
     private final EstudoProperties propriedades;
     private final PrecoCache precos;
     private final Clock relogio;
@@ -122,7 +125,8 @@ public class OperacaoEstudoService {
     public OperacaoEstudoService(OperacaoEstudoRepository operacoes, SessaoFlechaRepository sessoes,
                                  Corretora corretoraEstudo, Agendador agendador, EstudoProperties propriedades,
                                  PrecoCache precos, Clock relogio, OrdemExecutadaPublisher publisher,
-                                 PlatformTransactionManager transactionManager, RegrasVigentes regras) {
+                                 PlatformTransactionManager transactionManager, RegrasVigentes regras,
+                                 SaldoDisponivel saldoDisponivel) {
         this.operacoes = operacoes;
         this.sessoes = sessoes;
         this.corretora = corretoraEstudo;
@@ -133,12 +137,14 @@ public class OperacaoEstudoService {
         this.publisher = publisher;
         this.transacao = new TransactionTemplate(transactionManager);
         this.regras = regras;
+        this.saldoDisponivel = saldoDisponivel;
     }
 
     /**
-     * Registra a previsao (sobe ou desce) de uma flecha de mercado que acabou de sair do arco e dispara a abertura.
-     * Na mesma transacao gasta a flecha do ativo da sessao aberta do jogador. Devolve a operacao ja salva (ABRINDO,
-     * ou RECUSADA e liquidada se uma trava do modo REAL impediu) e a sessao atualizada.
+     * Registra a previsao (sobe ou desce) de uma flecha de mercado que o jogador soltou e abre a operacao na corretora
+     * no mesmo pedido. Na mesma transacao gasta a flecha do ativo da sessao aberta do jogador (no modo infinito, compra
+     * antes). Devolve a operacao ABERTA (com o tick de entrada, quando a corretora manda) ou RECUSADA/FALHOU e
+     * liquidada (flecha devolvida), e a sessao atualizada.
      *
      * @param simboloTexto par do ativo (BTCUSDT, ETHUSDT, PAXGUSDT, 1HZ100V); sem ele, BTCUSDT (clientes antigos)
      * @param valor valor da flecha gasta (o lote da aljava); sem ele, a de menor valor do ativo (clientes antigos)
@@ -156,10 +162,13 @@ public class OperacaoEstudoService {
             liquidar(id);
             salva = operacoes.findById(id).orElse(salva);
         }
-        SessaoFlecha sessao = sessoes.findById(sessaoId).orElse(null);
         if (salva.getStatus() == StatusOperacao.ABRINDO) {
-            agendador.executar(() -> abrir(id));
+            // abre ja, dentro do pedido: o jogo segura a flecha no arco ate a compra confirmar e solta o passaro com o
+            // preco real de entrada (recusa ou falha voltam liquidadas, com a flecha devolvida na sessao)
+            abrir(id);
+            salva = operacoes.findById(id).orElse(salva);
         }
+        SessaoFlecha sessao = sessoes.findById(sessaoId).orElse(null);
         return new Registro(salva, sessao);
     }
 
@@ -175,6 +184,17 @@ public class OperacaoEstudoService {
         if (!campo.temFlecha(flecha)) {
             // flecha guardada de um ativo que este campo nao tem: fica na aljava e volta para a guarda ao encerrar
             throw new RegraNegocioException("O passaro " + flecha.nome() + " nao aparece no " + campo.nome());
+        }
+        if (sessao.isInfinita()) {
+            // modo infinito: a flecha e comprada agora, se o saldo disponivel cobrir (custo da rodada - ganhos contam)
+            if (valor == null) {
+                throw new RegraNegocioException("Informe o valor da flecha " + flecha.nome());
+            }
+            valor = SessaoFlechaService.valorFlecha(flecha, valor, regras.atual().valorMinimo());
+            if (!sessao.temFlechaDeMercado(flecha, valor)) {
+                saldoDisponivel.exigir(usuarioId, valor);
+                sessao.garantirFlechaDeMercado(flecha, valor, relogio.instant());
+            }
         }
         if (sessao.getRestantes().get(flecha) < 1) {
             throw new RegraNegocioException("Sem flechas " + flecha.nome() + " na aljava");

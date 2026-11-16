@@ -52,7 +52,8 @@ public class FlechaController {
     @ResponseStatus(HttpStatus.CREATED)
     public SessaoResponse criar(@RequestHeader(WalletClient.CABECALHO_USUARIO) String usuarioId,
                                 @Valid @RequestBody FlechaRequests.NovaSessao pedido) {
-        return SessaoResponse.de(service.criar(usuarioId, pedido.campo(), pedido.flechas(), pedido.mercado()));
+        return SessaoResponse.de(service.criar(usuarioId, pedido.campo(), pedido.flechas(), pedido.mercado(),
+                Boolean.TRUE.equals(pedido.infinita())));
     }
 
     /** Sessao aberta do jogador (200) ou nenhuma (204). */

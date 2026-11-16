@@ -117,6 +117,14 @@ public class SessaoFlecha {
     @Column(name = "lotes_mercado", columnDefinition = "varchar(4000) default '[]' not null")
     private String lotesMercado;
 
+    /**
+     * Modo infinito: sem comprar flechas antes. Cada flecha de mercado solta sem uma desse valor na aljava e comprada
+     * na hora (soma ao custo, se o saldo cobrir) e a madeira, gratis, reabastece sozinha. O resultado da rodada sobe e
+     * desce a cada flecha. Default false porque a coluna entra numa tabela que ja tem linhas.
+     */
+    @Column(name = "infinita", columnDefinition = "boolean default false not null")
+    private boolean infinita;
+
     // devolucao das flechas de mercado que sobraram ao encerrar (zeros antes de encerrar ou sem sobra); default 0
     // porque as colunas entram numa tabela que ja tem linhas
     @Column(name = "devolucao_quantidade", columnDefinition = "integer default 0 not null")
@@ -325,6 +333,37 @@ public class SessaoFlecha {
     public BigDecimal comprar(TipoFlecha flecha, int quantidade, Instant agora) {
         return comprar(flecha, quantidade, null, agora);
     }
+
+    /** Liga o modo infinito (so ao abrir, antes de gravar a sessao). */
+    public void tornarInfinita() {
+        this.infinita = true;
+    }
+
+    public boolean isInfinita() {
+        return infinita;
+    }
+
+    /**
+     * Modo infinito: se nao ha flecha de mercado do tipo com este valor, compra uma (soma o valor ao custo).
+     *
+     * @return quanto somou ao custo (zero se ja havia, ou fora do modo infinito)
+     */
+    public BigDecimal garantirFlechaDeMercado(TipoFlecha flecha, BigDecimal valor, Instant agora) {
+        if (!infinita || !flecha.deMercado() || temFlechaDeMercado(flecha, valor)) {
+            return BigDecimal.ZERO;
+        }
+        return comprar(flecha, 1, valor, agora);
+    }
+
+    /** Modo infinito: a aljava sem madeira (gratis) recebe mais {@value #MADEIRA_INFINITA}. */
+    public void garantirMadeira(Instant agora) {
+        if (infinita && restantes.get(TipoFlecha.WOOD) <= 0
+                && getCampo().custoFlecha(TipoFlecha.WOOD).signum() == 0) {
+            comprar(TipoFlecha.WOOD, MADEIRA_INFINITA, agora);
+        }
+    }
+
+    public static final int MADEIRA_INFINITA = 10;
 
     /**
      * Encerra a sessao e tira da aljava as flechas que sobraram. As comuns (e as antigas de uma sessao aberta antes

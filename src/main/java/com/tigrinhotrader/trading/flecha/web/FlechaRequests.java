@@ -16,10 +16,11 @@ public final class FlechaRequests {
     /**
      * {@code { "campo": "bosque", "flechas": { "wood": 10 },
      * "mercado": [ { "flecha": "btc", "valor": 10, "quantidade": 3 } ] }}. {@code mercado} e opcional; flechas de
-     * mercado em {@code flechas} (clientes antigos) valem como lotes de 10 moedas.
+     * mercado em {@code flechas} (clientes antigos) valem como lotes de 10 moedas. {@code "infinita": true} abre no
+     * modo infinito: so a entrada e cobrada e cada flecha de mercado e paga na hora do tiro.
      */
     public record NovaSessao(@NotBlank String campo, @NotNull Map<String, Integer> flechas,
-                             List<@NotNull PedidoLote> mercado) {
+                             List<@NotNull PedidoLote> mercado, Boolean infinita) {
     }
 
     /** {@code { "flecha": "gold", "acertos": ["red", "big"] }}: passaros atingidos por esta flecha, na ordem. */
