@@ -113,6 +113,17 @@ public class OperacaoEstudo {
     private BigDecimal resultadoBinarioBrl;
 
     /**
+     * Ticks reais do contrato (opcao da Deriv): o preco e a hora em que ele comecou e terminou. O jogo desenha o
+     * passaro da flecha por eles. Nulos nas outras corretoras e enquanto nao chegam.
+     */
+    @Column(precision = 18, scale = 8)
+    private BigDecimal precoEntradaContrato;
+    private Instant entradaEm;
+    @Column(precision = 18, scale = 8)
+    private BigDecimal precoSaidaContrato;
+    private Instant saidaEm;
+
+    /**
      * Moedas apostadas com a flecha de mercado: o valor da flecha, com centavos. Nulo em operacoes de antes da
      * aposta: essas nao sao liquidadas. Era inteiro (100 fixo) antes de o jogador escolher o valor:
      * {@code AjusteEsquema} converte a coluna antiga para numeric(14,2), sem mexer nos valores.
@@ -173,6 +184,22 @@ public class OperacaoEstudo {
         taxaUsdtEntrada = e.taxaUsdt();
         taxaOutraEntrada = e.taxaOutraUsdt();
         abertaEm = agora;
+        guardarTicks(e.ticks());
+    }
+
+    /** Guarda os ticks do contrato que chegaram (a entrada na abertura; a saida, e a entrada se faltava, no fim). */
+    private void guardarTicks(Execucao.Ticks t) {
+        if (t == null) {
+            return;
+        }
+        if (t.entrada() != null && precoEntradaContrato == null) {
+            precoEntradaContrato = t.entrada();
+            entradaEm = t.entradaEm();
+        }
+        if (t.saida() != null) {
+            precoSaidaContrato = t.saida();
+            saidaEm = t.saidaEm();
+        }
     }
 
     public Execucao abertura() {
@@ -190,6 +217,7 @@ public class OperacaoEstudo {
         acertouDirecao = resultado.acertou();
         resultadoBinarioBrl = resultado.binarioBrl();
         fechadaEm = agora;
+        guardarTicks(saida.ticks());
     }
 
     public void recusar(String porque, Instant agora) {
@@ -347,6 +375,22 @@ public class OperacaoEstudo {
 
     public BigDecimal getPrecoSaida() {
         return precoSaida;
+    }
+
+    public BigDecimal getPrecoEntradaContrato() {
+        return precoEntradaContrato;
+    }
+
+    public Instant getEntradaEm() {
+        return entradaEm;
+    }
+
+    public BigDecimal getPrecoSaidaContrato() {
+        return precoSaidaContrato;
+    }
+
+    public Instant getSaidaEm() {
+        return saidaEm;
     }
 
     public BigDecimal getResultadoBrutoBrl() {

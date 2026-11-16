@@ -50,7 +50,9 @@ public class EstudoController {
      * na fechada, valor + resultadoLiquidoBrl se acertou a direcao (ex.: 10.30, ou 9.94 se as taxas comeram o
      * lucro; nunca menos que 0), 0 se errou e o valor se empatou; o valor na recusada ou com falha; nulo ate liquidar.
      * Operacoes antigas guardam o pagamento da regra delas. {@code sessao}: a sessao da flecha, com a aljava e os
-     * ganhos atualizados (nula se nao existe).
+     * ganhos atualizados (nula se nao existe). {@code precoEntradaContrato}/{@code entradaEm} e
+     * {@code precoSaidaContrato}/{@code saidaEm}: os ticks reais do contrato na Deriv (o jogo desenha o passaro
+     * por eles); nulos ate chegarem e nas outras corretoras.
      */
     public record OperacaoResponse(UUID id, String simbolo, Direcao direcao, TipoPrevisao tipo, ModoEstudo modo,
                                    StatusOperacao status, String motivo, BigDecimal nocionalBrl,
@@ -58,7 +60,8 @@ public class EstudoController {
                                    BigDecimal precoSaida, BigDecimal resultadoBrutoBrl, BigDecimal taxasBrl,
                                    BigDecimal resultadoLiquidoBrl, Boolean acertouDirecao,
                                    BigDecimal resultadoBinarioBrl, Instant criadaEm, Instant fechadaEm,
-                                   BigDecimal moedasPagas, SessaoResponse sessao) {
+                                   BigDecimal moedasPagas, BigDecimal precoEntradaContrato, Instant entradaEm,
+                                   BigDecimal precoSaidaContrato, Instant saidaEm, SessaoResponse sessao) {
 
         static OperacaoResponse de(Registro r) {
             OperacaoEstudo o = r.operacao();
@@ -66,7 +69,8 @@ public class EstudoController {
                     o.getMotivo(), o.getNocionalBrl(), o.getPrecoAgoraJogo(), o.getPrecoPrevistoJogo(),
                     o.getPrecoEntrada(), o.getPrecoSaida(), o.getResultadoBrutoBrl(), o.getTaxasBrl(),
                     o.getResultadoLiquidoBrl(), o.getAcertouDirecao(), o.getResultadoBinarioBrl(), o.getCriadaEm(),
-                    o.getFechadaEm(), o.getMoedasPagas(), r.sessao() == null ? null : SessaoResponse.de(r.sessao()));
+                    o.getFechadaEm(), o.getMoedasPagas(), o.getPrecoEntradaContrato(), o.getEntradaEm(),
+                    o.getPrecoSaidaContrato(), o.getSaidaEm(), r.sessao() == null ? null : SessaoResponse.de(r.sessao()));
         }
     }
 
