@@ -123,10 +123,10 @@ public class CorretoraDerivOptions implements Corretora {
         try {
             JsonNode contratoFinal = esperarLiquidacao(contrato);
             roteador.esquecer(contrato);
-            BigDecimal payout = contratoFinal.hasNonNull("payout") ? decimal(contratoFinal, "payout") : BigDecimal.ZERO;
-            BigDecimal lucro = contratoFinal.hasNonNull("profit") ? decimal(contratoFinal, "profit") : payout.add(abertura.fluxoUsdt());
+            BigDecimal recebido = recebido(contratoFinal, abertura.fluxoUsdt());
+            BigDecimal lucro = contratoFinal.hasNonNull("profit") ? decimal(contratoFinal, "profit") : recebido.add(abertura.fluxoUsdt());
             BigDecimal preco = precoDeSaida(direcao, abertura.precoMedio(), contratoFinal, lucro);
-            return new Execucao("deriv-fechado-" + contrato, BigDecimal.ZERO, preco, payout,
+            return new Execucao("deriv-fechado-" + contrato, BigDecimal.ZERO, preco, recebido,
                     BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, RoteadorDeriv.ticks(contratoFinal));
         } catch (Exception e) {
             throw new RegraNegocioException("Não foi possível liquidar a opção Deriv: " + mensagem(e));
@@ -302,6 +302,23 @@ public class CorretoraDerivOptions implements Corretora {
     }
 
     private static BigDecimal decimal(JsonNode n, String campo) { return new BigDecimal(n.path(campo).asText("0")); }
+
+    /**
+     * O que a Deriv pagou pelo contrato no fim ({@code sell_price}): o premio se ganhou, 0 se perdeu ou empatou.
+     * O {@code payout} NAO serve: num contrato perdido ele continua trazendo o premio que seria pago (antes cada
+     * perda entrava no resultado em reais como ganho). Sem sell_price: lucro + o que foi pago na compra
+     * ({@code fluxoEntrada} e negativo); sem os dois, o payout so se ganhou.
+     */
+    static BigDecimal recebido(JsonNode contrato, BigDecimal fluxoEntrada) {
+        if (contrato.hasNonNull("sell_price")) {
+            return decimal(contrato, "sell_price");
+        }
+        if (contrato.hasNonNull("profit")) {
+            return decimal(contrato, "profit").subtract(fluxoEntrada).max(BigDecimal.ZERO);
+        }
+        return "won".equalsIgnoreCase(contrato.path("status").asText()) && contrato.hasNonNull("payout")
+                ? decimal(contrato, "payout") : BigDecimal.ZERO;
+    }
 
     /**
      * Preco de saida sintetico. A Deriv diz quem ganhou (o lucro do contrato), nao um preco que o

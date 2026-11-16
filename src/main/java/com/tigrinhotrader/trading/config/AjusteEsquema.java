@@ -63,6 +63,30 @@ public class AjusteEsquema implements ApplicationRunner {
         } catch (DataAccessException e) {
             log.warn("Nao consegui converter operacoes_estudo.aposta_moedas para numeric: {}", e.getMessage());
         }
+        try {
+            corrigirPerdasDaDeriv();
+        } catch (DataAccessException e) {
+            log.warn("Nao consegui corrigir o resultado das perdas da Deriv: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Opcoes da Deriv perdidas ou empatadas gravadas antes da correcao do sell_price: o fechamento usava o payout
+     * (o premio que seria pago) como recebido, entao o resultado em reais saiu positivo. O certo e so o que foi pago
+     * na compra: {@code fluxo_usdt_entrada x cambio} (negativo). Idempotente: depois da correcao a condicao nao vale.
+     */
+    static final String CORRIGE_PERDAS_DERIV = "update operacoes_estudo"
+            + " set resultado_liquido_brl = round(fluxo_usdt_entrada * cambio, 4),"
+            + " resultado_bruto_brl = round(fluxo_usdt_entrada * cambio, 4)"
+            + " where simbolo = '1HZ100V' and status = 'FECHADA' and resultado_binario_brl <= 0"
+            + " and resultado_liquido_brl > 0 and fluxo_usdt_entrada < 0 and cambio is not null";
+
+    public int corrigirPerdasDaDeriv() {
+        int corrigidas = jdbc.update(CORRIGE_PERDAS_DERIV);
+        if (corrigidas > 0) {
+            log.info("Corrigido o resultado em reais de {} opcao(oes) da Deriv perdida(s) ou empatada(s)", corrigidas);
+        }
+        return corrigidas;
     }
 
     /** Converte {@code moedas_pagas} de integer para numeric(14,2), so no Postgres e so se ainda for inteira. */

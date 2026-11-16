@@ -46,6 +46,31 @@ class CorretoraDerivOptionsTest {
     }
 
     @Test
+    void contratoPerdidoNaoRecebeOPayout() throws Exception {
+        // contratos reais da conta: o perdido traz payout 3.31 mas a Deriv pagou 0 (sell_price)
+        JsonNode perdido = JSON.readTree("{\"status\":\"lost\",\"buy_price\":\"1.74\",\"payout\":\"3.31\","
+                + "\"sell_price\":\"0.00\",\"profit\":\"-1.74\"}");
+        JsonNode ganho = JSON.readTree("{\"status\":\"won\",\"buy_price\":\"3.49\",\"payout\":\"6.64\","
+                + "\"sell_price\":\"6.64\",\"profit\":\"3.15\"}");
+        assertThat(CorretoraDerivOptions.recebido(perdido, new BigDecimal("-1.74"))).isEqualByComparingTo("0");
+        assertThat(CorretoraDerivOptions.recebido(ganho, new BigDecimal("-3.49"))).isEqualByComparingTo("6.64");
+        // sem sell_price: pelo lucro; sem nada: o payout so se ganhou
+        assertThat(CorretoraDerivOptions.recebido(JSON.readTree("{\"profit\":-1.74,\"payout\":3.31}"),
+                new BigDecimal("-1.74"))).isEqualByComparingTo("0");
+        assertThat(CorretoraDerivOptions.recebido(JSON.readTree("{\"status\":\"lost\",\"payout\":3.31}"),
+                new BigDecimal("-1.74"))).isEqualByComparingTo("0");
+
+        // o resultado em reais da perda e negativo (era +1,57 x cambio)
+        Execucao abertura = new Execucao("deriv-1", ZERO, ENTRADA, new BigDecimal("-1.74"), ZERO, ZERO, ZERO);
+        Execucao fechamento = new Execucao("deriv-fechado-1", ZERO,
+                CorretoraDerivOptions.precoDeSaida(Direcao.ALTA, ENTRADA, perdido, new BigDecimal("-1.74")),
+                CorretoraDerivOptions.recebido(perdido, new BigDecimal("-1.74")), ZERO, ZERO, ZERO);
+        ResultadoOperacao r = ResultadoOperacao.calcular(Direcao.ALTA, abertura, fechamento, new BigDecimal("5.60"),
+                BigDecimal.TEN);
+        assertThat(r.liquidoBrl()).isEqualByComparingTo("-9.744");
+    }
+
+    @Test
     void empateNaApiNovaUsaEntrySpotEExitSpot() throws Exception {
         // a API nova manda entry_spot/exit_spot: antes so exit_tick era lido e todo empate virava erro
         JsonNode empate = JSON.readTree("{\"entry_spot\":1348.71,\"exit_spot\":1348.71,\"profit\":-1.74}");
