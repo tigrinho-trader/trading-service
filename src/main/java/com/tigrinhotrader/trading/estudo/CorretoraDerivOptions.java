@@ -28,7 +28,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * Adaptador da opcao binaria CALL/PUT de 5 ticks da Deriv (Volatilidade 100 1s).
+ * Adaptador da opcao binaria CALL/PUT da Deriv: 5 ticks na Volatilidade 100 (1s) e 5 minutos no ouro e na prata
+ * ({@link #para(AtivoEstudo)}; o contrato de cada ativo esta em {@link AtivoEstudo#contratoDeriv()}).
  * <p>
  * Uma conexao WebSocket autenticada fica aberta (com ping) e serve todas as flechas: abrir custa so a proposta e a
  * compra, sem buscar a conta, pedir OTP e conectar a cada flecha (isso levava ~2 s, e o contrato comecava bem
@@ -39,8 +40,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class CorretoraDerivOptions implements Corretora {
     private static final Logger log = LoggerFactory.getLogger(CorretoraDerivOptions.class);
-    private static final String SIMBOLO = "1HZ100V";
-    private static final int TICKS = 5;
     private static final Duration ESPERA = Duration.ofSeconds(20);
     /** Quanto a abertura espera o tick de entrada depois da compra (chega ~1 s depois, no tick seguinte). */
     private static final Duration ESPERA_ENTRADA = Duration.ofSeconds(4);
@@ -87,9 +86,44 @@ public class CorretoraDerivOptions implements Corretora {
         });
     }
 
+    /** A Volatilidade 100 (o ativo de sempre desta corretora). */
     @Override
     public Execucao abrir(Direcao direcao, BigDecimal nocionalUsdt, String idCliente) {
+        return abrir(AtivoEstudo.V100, direcao, nocionalUsdt, idCliente);
+    }
+
+    /**
+     * Esta corretora para um ativo da Deriv: mesma conexao, contrato do ativo (simbolo e prazo). A V100 e a propria
+     * corretora.
+     */
+    public Corretora para(AtivoEstudo ativo) {
+        if (ativo == AtivoEstudo.V100) {
+            return this;
+        }
+        ativo.contratoDeriv().orElseThrow(() -> new IllegalArgumentException(ativo + " nao e da Deriv"));
+        CorretoraDerivOptions deriv = this;
+        return new Corretora() {
+            @Override
+            public ModoEstudo modo() {
+                return deriv.modo();
+            }
+
+            @Override
+            public Execucao abrir(Direcao direcao, BigDecimal nocionalUsdt, String idCliente) {
+                return deriv.abrir(ativo, direcao, nocionalUsdt, idCliente);
+            }
+
+            @Override
+            public Execucao fechar(Direcao direcao, Execucao abertura, String idCliente) {
+                return deriv.fechar(direcao, abertura, idCliente);
+            }
+        };
+    }
+
+    Execucao abrir(AtivoEstudo ativo, Direcao direcao, BigDecimal nocionalUsdt, String idCliente) {
         exigirReal();
+        AtivoEstudo.Contrato prazo = ativo.contratoDeriv()
+                .orElseThrow(() -> new IllegalArgumentException(ativo + " nao e da Deriv"));
         String contrato;
         BigDecimal ask;
         BigDecimal spot;
@@ -97,8 +131,8 @@ public class CorretoraDerivOptions implements Corretora {
             String tipo = direcao == Direcao.ALTA ? "CALL" : "PUT";
             JsonNode p = pedir(mapper.createObjectNode()
                     .put("proposal", 1).put("amount", arredondarStake(nocionalUsdt)).put("basis", "stake")
-                    .put("contract_type", tipo).put("currency", "USD").put("duration", TICKS)
-                    .put("duration_unit", "t").put("underlying_symbol", SIMBOLO)).path("proposal");
+                    .put("contract_type", tipo).put("currency", "USD").put("duration", prazo.duracao())
+                    .put("duration_unit", prazo.unidade()).put("underlying_symbol", ativo.simbolo())).path("proposal");
             String proposalId = p.path("id").asText();
             ask = decimal(p, "ask_price");
             spot = decimal(p, "spot");
@@ -107,7 +141,7 @@ public class CorretoraDerivOptions implements Corretora {
             contrato = comprado.path("buy").path("contract_id").asText();
             if (contrato.isBlank()) throw new IllegalStateException("Compra Deriv sem contract_id");
         } catch (Exception e) {
-            throw new RegraNegocioException("Deriv recusou a opção: " + mensagem(e));
+            throw new RegraNegocioException("Deriv recusou a opção: " + motivoDaRecusa(mensagem(e), ativo));
         }
         // comprado: daqui em diante nada pode virar recusa (o contrato vale na Deriv)
         Execucao.Ticks ticks = esperarEntrada(contrato);
@@ -131,6 +165,15 @@ public class CorretoraDerivOptions implements Corretora {
         } catch (Exception e) {
             throw new RegraNegocioException("Não foi possível liquidar a opção Deriv: " + mensagem(e));
         }
+    }
+
+    /** Mercado fechado (ouro e prata param no fim de semana): diz em portugues qual. */
+    static String motivoDaRecusa(String mensagem, AtivoEstudo ativo) {
+        String texto = mensagem == null ? "" : mensagem;
+        if (texto.toLowerCase(java.util.Locale.ROOT).contains("closed")) {
+            return "o mercado de " + ativo.flecha().nome() + " está fechado agora (" + texto + ")";
+        }
+        return texto;
     }
 
     /**

@@ -89,6 +89,7 @@ class EstudoApiTest {
     /** Roda "executar" na hora; as tarefas agendadas ficam numa fila que o teste dispara. */
     static class AgendadorManual implements Agendador {
         final List<Runnable> agendadas = new ArrayList<>();
+        final java.util.Map<Runnable, Instant> horarios = new java.util.IdentityHashMap<>();
 
         @Override
         public void executar(Runnable tarefa) {
@@ -98,12 +99,22 @@ class EstudoApiTest {
         @Override
         public void agendar(Runnable tarefa, Instant quando) {
             agendadas.add(tarefa);
+            horarios.put(tarefa, quando);
         }
 
         void rodarAgendadas() {
             List<Runnable> agora = new ArrayList<>(agendadas);
             agendadas.clear();
+            horarios.clear();
             agora.forEach(Runnable::run);
+        }
+
+        /** So as tarefas cujo horario ja chegou no relogio {@code agora} (as outras continuam na fila). */
+        void rodarVencidas(Instant agora) {
+            List<Runnable> vencidas = agendadas.stream().filter(t -> !horarios.get(t).isAfter(agora)).toList();
+            agendadas.removeAll(vencidas);
+            vencidas.forEach(horarios::remove);
+            vencidas.forEach(Runnable::run);
         }
     }
 
@@ -334,7 +345,7 @@ class EstudoApiTest {
     void ethereumEOuroSaoSempreSimuladosMesmoComOBitcoinNoModoReal() throws Exception {
         corretora.modo = ModoEstudo.REAL;
         precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
-        precos.atualizar(new PrecoAtualizadoEvento("PAXGUSDT", new BigDecimal("3300"), null, relogio.instant()));
+        precos.atualizar(new PrecoAtualizadoEvento("frxXAUUSD", new BigDecimal("3300"), null, relogio.instant()));
         String jogador = novoJogador();
         UUID sessao = sessaoDeMercado(jogador);
 
@@ -347,16 +358,22 @@ class EstudoApiTest {
         consultar(jogador, eth).andExpect(jsonPath("$.status").value("ABERTA"))
                 .andExpect(jsonPath("$.precoEntrada").value(2500));
         relogio.avancar(Duration.ofSeconds(2));
-        UUID ouro = idDe(registrarNoAtivo(jogador, sessao, "PAXGUSDT", "QUEDA")
+        UUID ouro = idDe(registrarNoAtivo(jogador, sessao, "frxXAUUSD", "QUEDA")
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.simbolo").value("PAXGUSDT"))
+                .andExpect(jsonPath("$.simbolo").value("frxXAUUSD"))
                 .andExpect(jsonPath("$.modo").value("SIMULADO")));
 
-        // 5 s depois: ETH subiu (acertou), ouro subiu (errou)
+        // 5 s depois: o ETH fecha (subiu: acertou); o ouro e um contrato de 5 minutos e continua aberto
         relogio.avancar(Duration.ofSeconds(5));
         precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2510"), null, relogio.instant()));
-        precos.atualizar(new PrecoAtualizadoEvento("PAXGUSDT", new BigDecimal("3310"), null, relogio.instant()));
-        agendador.rodarAgendadas();
+        precos.atualizar(new PrecoAtualizadoEvento("frxXAUUSD", new BigDecimal("3305"), null, relogio.instant()));
+        agendador.rodarVencidas(relogio.instant());
+        consultar(jogador, ouro).andExpect(jsonPath("$.status").value("ABERTA"));
+
+        // 5 min depois de aberto: o ouro fecha (subiu: errou)
+        relogio.avancar(Duration.ofMinutes(5).minusSeconds(5));
+        precos.atualizar(new PrecoAtualizadoEvento("frxXAUUSD", new BigDecimal("3310"), null, relogio.instant()));
+        agendador.rodarVencidas(relogio.instant());
 
         consultar(jogador, eth).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.precoSaida").value(2510))
@@ -369,7 +386,7 @@ class EstudoApiTest {
         consultar(jogador, ouro).andExpect(jsonPath("$.status").value("FECHADA"))
                 .andExpect(jsonPath("$.acertouDirecao").value(false))
                 .andExpect(jsonPath("$.resultadoBinarioBrl").value(-10))
-                // 0,00060606 PAXG vendido a 3300 e recomprado a 3310, com taxas: R$ -0,0503; errou a direcao:
+                // 0,00060606 de ouro vendido a 3300 e recomprado a 3310, com taxas: R$ -0,0503; errou a direcao:
                 // perde a aposta toda
                 .andExpect(jsonPath("$.resultadoLiquidoBrl").value(-0.0503))
                 .andExpect(jsonPath("$.moedasPagas").value(0))
@@ -383,7 +400,7 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.modoAtual").value("REAL"))
                 .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'ETHUSDT' && @.modo == 'SIMULADO')].numeros.operacoes")
                         .isNotEmpty())
-                .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'PAXGUSDT' && @.modo == 'SIMULADO')].numeros.acertos")
+                .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'frxXAUUSD' && @.modo == 'SIMULADO')].numeros.acertos")
                         .isNotEmpty())
                 .andExpect(jsonPath("$.porAtivo[?(@.simbolo == 'ETHUSDT' && @.modo == 'REAL')]").doesNotExist())
                 .andExpect(jsonPath("$.porAtivo[0].numeros.taxaAcertoPercentual").isNumber())
@@ -419,8 +436,8 @@ class EstudoApiTest {
         // sessao sem flecha de ouro PAXG, num campo que tem o ativo
         String outro = novoJogador();
         UUID semOuro = sessoes.criar(outro, "pico", Map.of("btc", 1)).getId();
-        registrarNoAtivo(outro, semOuro, "PAXGUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Sem flechas Ouro PAXG na aljava"));
+        registrarNoAtivo(outro, semOuro, "frxXAUUSD", "ALTA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("Sem flechas Ouro na aljava"));
     }
 
     @Test
@@ -437,8 +454,8 @@ class EstudoApiTest {
         // ...mas o passaro do ativo nao voa ali: recusa sem gastar a flecha nem abrir operacao
         registrarNoAtivo(jogador, vilarejo, "ETHUSDT", "ALTA").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value("O passaro Ethereum nao aparece no Campo do Vilarejo"));
-        registrarNoAtivo(jogador, vilarejo, "PAXGUSDT", "QUEDA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("O passaro Ouro PAXG nao aparece no Campo do Vilarejo"));
+        registrarNoAtivo(jogador, vilarejo, "frxXAUUSD", "QUEDA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("O passaro Ouro nao aparece no Campo do Vilarejo"));
         SessaoFlecha aberta = sessaoAtual(jogador);
         assertThat(aberta.getRestantes().get(TipoFlecha.ETH)).isEqualTo(1);
         assertThat(aberta.getRestantes().get(TipoFlecha.OURO)).isEqualTo(1);
@@ -450,8 +467,8 @@ class EstudoApiTest {
         assertThat(encerrada.getDevolucaoQuantidade()).isEqualTo(2);
         assertThat(encerrada.getDevolucaoValor()).isEqualByComparingTo("199.60");
         UUID bosque = sessoes.criar(jogador, "bosque", Map.of("wood", 1, "eth", 1)).getId();
-        registrarNoAtivo(jogador, bosque, "PAXGUSDT", "QUEDA").andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("O passaro Ouro PAXG nao aparece no Bosque dos Arqueiros"));
+        registrarNoAtivo(jogador, bosque, "frxXAUUSD", "QUEDA").andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value("O passaro Ouro nao aparece no Bosque dos Arqueiros"));
         precos.atualizar(new PrecoAtualizadoEvento("ETHUSDT", new BigDecimal("2500"), null, relogio.instant()));
         registrarNoAtivo(jogador, bosque, "ETHUSDT", "ALTA").andExpect(status().isCreated())
                 .andExpect(jsonPath("$.simbolo").value("ETHUSDT"))
@@ -782,7 +799,7 @@ class EstudoApiTest {
 
         // a recusada nao conta; o empate fica fora da taxa
         meusAcertos(jogador, null).andExpect(status().isOk())
-                .andExpect(jsonPath("$.porAtivo", hasSize(4)))
+                .andExpect(jsonPath("$.porAtivo", hasSize(5)))
                 .andExpect(jsonPath("$.porAtivo[0].simbolo").value("BTCUSDT"))
                 .andExpect(jsonPath("$.porAtivo[0].operacoes").value(3))
                 .andExpect(jsonPath("$.porAtivo[0].acertos").value(1))
@@ -796,13 +813,15 @@ class EstudoApiTest {
                 .andExpect(jsonPath("$.porAtivo[1].taxaAcertoPercentual").value(100.0))
                 // R$ 10: 0,0008 ETH de 2500 a 2510 menos 0,1% por ponta: 0,003992 US$ x 5
                 .andExpect(jsonPath("$.porAtivo[1].resultadoLiquidoBrl").value(0.02))
-                .andExpect(jsonPath("$.porAtivo[2].simbolo").value("PAXGUSDT"))
+                .andExpect(jsonPath("$.porAtivo[2].simbolo").value("frxXAUUSD"))
                 .andExpect(jsonPath("$.porAtivo[2].operacoes").value(0))
                 .andExpect(jsonPath("$.porAtivo[2].empates").value(0))
                 .andExpect(jsonPath("$.porAtivo[2].taxaAcertoPercentual").isEmpty())
                 .andExpect(jsonPath("$.porAtivo[2].resultadoLiquidoBrl").value(0))
-                .andExpect(jsonPath("$.porAtivo[3].simbolo").value("1HZ100V"))
+                .andExpect(jsonPath("$.porAtivo[3].simbolo").value("frxXAGUSD"))
                 .andExpect(jsonPath("$.porAtivo[3].operacoes").value(0))
+                .andExpect(jsonPath("$.porAtivo[4].simbolo").value("1HZ100V"))
+                .andExpect(jsonPath("$.porAtivo[4].operacoes").value(0))
                 .andExpect(jsonPath("$.total.simbolo").doesNotExist())
                 .andExpect(jsonPath("$.total.operacoes").value(4))
                 .andExpect(jsonPath("$.total.acertos").value(2))

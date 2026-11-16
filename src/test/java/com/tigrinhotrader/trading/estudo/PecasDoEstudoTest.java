@@ -60,9 +60,26 @@ class PecasDoEstudoTest {
         assertThat(AtivoEstudo.porSimbolo(null)).isEmpty();
         assertThat(AtivoEstudo.porSimbolo("1hz100v")).contains(AtivoEstudo.V100);
         assertThat(AtivoEstudo.values()).extracting(AtivoEstudo::simbolo)
-                .containsExactly("BTCUSDT", "ETHUSDT", "PAXGUSDT", "1HZ100V");
+                .containsExactly("BTCUSDT", "ETHUSDT", "frxXAUUSD", "frxXAGUSD", "1HZ100V");
         assertThat(AtivoEstudo.values()).extracting(AtivoEstudo::flecha)
-                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO, TipoFlecha.V100);
+                .containsExactly(TipoFlecha.BTC, TipoFlecha.ETH, TipoFlecha.OURO, TipoFlecha.PRATA, TipoFlecha.V100);
+        // ouro e prata sao da Deriv agora (o PAXGUSDT das operacoes antigas ainda e o ouro)
+        assertThat(AtivoEstudo.porSimbolo("frxXAUUSD")).contains(AtivoEstudo.OURO);
+        assertThat(AtivoEstudo.porSimbolo(" FRXXAGUSD ")).contains(AtivoEstudo.PRATA);
+    }
+
+    @Test
+    void contratoDeCadaAtivoNaDeriv() {
+        // metais: 5 minutos, o menor prazo de Sobe/Desce na Deriv; V100: 5 ticks
+        assertThat(AtivoEstudo.OURO.contratoDeriv()).contains(new AtivoEstudo.Contrato(5, "m"));
+        assertThat(AtivoEstudo.PRATA.contratoDeriv()).contains(new AtivoEstudo.Contrato(5, "m"));
+        assertThat(AtivoEstudo.V100.contratoDeriv()).contains(new AtivoEstudo.Contrato(5, "t"));
+        assertThat(AtivoEstudo.OURO.contratoDeriv().flatMap(AtivoEstudo.Contrato::prazoFixo))
+                .contains(java.time.Duration.ofMinutes(5));
+        assertThat(AtivoEstudo.V100.contratoDeriv().flatMap(AtivoEstudo.Contrato::prazoFixo)).isEmpty();
+        assertThat(AtivoEstudo.BTC.contratoDeriv()).isEmpty();
+        assertThat(AtivoEstudo.ETH.naDeriv()).isFalse();
+        assertThat(AtivoEstudo.PRATA.naDeriv()).isTrue();
     }
 
     @Test

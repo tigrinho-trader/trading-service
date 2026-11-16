@@ -233,10 +233,10 @@ class SessaoFlechaServiceTest {
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessage("Flechas Ethereum nao sao vendidas no Campo do Vilarejo");
         assertThatThrownBy(() -> service.criar("u1", "bosque", Map.of("wood", 1, "ouro", 1)))
-                .hasMessage("Flechas Ouro PAXG nao sao vendidas no Bosque dos Arqueiros");
+                .hasMessage("Flechas Ouro nao sao vendidas no Bosque dos Arqueiros");
         SessaoFlecha s = aberta(agora);
         assertThatThrownBy(() -> service.comprar("u1", s.getId(), "ouro", 1, BigDecimal.TEN))
-                .hasMessage("Flechas Ouro PAXG nao sao vendidas no Campo do Vilarejo");
+                .hasMessage("Flechas Ouro nao sao vendidas no Campo do Vilarejo");
         verify(wallet, never()).saldo(any());
 
         // a bitcoin vale em todo campo; no pico tem os quatro ativos

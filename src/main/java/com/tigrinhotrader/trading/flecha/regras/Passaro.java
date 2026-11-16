@@ -17,8 +17,10 @@ public enum Passaro {
     BTC("btc", 0, true),
     /** Passaro ethereum: voa conforme a cotacao do ETH, fora do sorteio, nos campos que tem o ativo. */
     ETH("eth", 0, true),
-    /** Passaro do ouro: voa conforme a cotacao do ouro (PAXG), fora do sorteio, nos campos que tem o ativo. */
+    /** Passaro do ouro: voa conforme a cotacao do ouro na Deriv (frxXAUUSD), fora do sorteio. */
     OURO("ouro", 0, true),
+    /** Passaro da prata: voa conforme a cotacao da prata na Deriv (frxXAGUSD), fora do sorteio. */
+    PRATA("prata", 0, true),
     V100("v100", 0, true);
 
     private final String id;

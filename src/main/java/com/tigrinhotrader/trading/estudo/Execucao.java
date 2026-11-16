@@ -22,9 +22,14 @@ public record Execucao(String ordemId, BigDecimal quantidadeBtc, BigDecimal prec
     }
 
     /**
-     * Ticks de um contrato por ticks: o preco e a hora em que ele comecou (tick de entrada) e terminou (tick de
-     * saida). Campos ainda desconhecidos ficam nulos (a saida, logo depois da compra).
+     * Ticks de um contrato: o preco e a hora em que ele comecou (tick de entrada) e terminou (tick de saida), e a
+     * hora em que ele expira ({@code expiraEm}: nos contratos em minutos, o tick de saida e o ultimo ate ela).
+     * Campos ainda desconhecidos ficam nulos (a saida, logo depois da compra).
      */
-    public record Ticks(BigDecimal entrada, Instant entradaEm, BigDecimal saida, Instant saidaEm) {
+    public record Ticks(BigDecimal entrada, Instant entradaEm, BigDecimal saida, Instant saidaEm, Instant expiraEm) {
+
+        public Ticks(BigDecimal entrada, Instant entradaEm, BigDecimal saida, Instant saidaEm) {
+            this(entrada, entradaEm, saida, saidaEm, null);
+        }
     }
 }

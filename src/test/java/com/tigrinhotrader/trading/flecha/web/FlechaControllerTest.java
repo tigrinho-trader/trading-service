@@ -200,24 +200,25 @@ class FlechaControllerTest {
                 // quanto mais caro o campo, mais ativos para apostar
                 .andExpect(jsonPath("$.campos[0].passarosMercado", contains("btc")))
                 .andExpect(jsonPath("$.campos[1].passarosMercado", contains("btc", "eth")))
-                .andExpect(jsonPath("$.campos[2].passarosMercado", contains("btc", "eth", "ouro", "v100")))
-                .andExpect(jsonPath("$.campos[3].passarosMercado", contains("btc", "eth", "ouro", "v100")))
+                .andExpect(jsonPath("$.campos[2].passarosMercado", contains("btc", "eth", "ouro", "prata", "v100")))
+                .andExpect(jsonPath("$.campos[3].passarosMercado", contains("btc", "eth", "ouro", "prata", "v100")))
                 .andExpect(jsonPath("$.campos[0].ativos", contains("BTCUSDT")))
                 .andExpect(jsonPath("$.campos[1].ativos", contains("BTCUSDT", "ETHUSDT")))
-                .andExpect(jsonPath("$.campos[2].ativos", contains("BTCUSDT", "ETHUSDT", "PAXGUSDT", "1HZ100V")))
-                .andExpect(jsonPath("$.campos[3].ativos", contains("BTCUSDT", "ETHUSDT", "PAXGUSDT", "1HZ100V")))
+                .andExpect(jsonPath("$.campos[2].ativos", contains("BTCUSDT", "ETHUSDT", "frxXAUUSD", "frxXAGUSD", "1HZ100V")))
+                .andExpect(jsonPath("$.campos[3].ativos", contains("BTCUSDT", "ETHUSDT", "frxXAUUSD", "frxXAGUSD", "1HZ100V")))
                 // passaros nao pagam moedas
                 .andExpect(jsonPath("$.passaros.red").value(0))
                 .andExpect(jsonPath("$.passaros.gold").value(0))
                 .andExpect(jsonPath("$.passaros.btc").value(0))
                 .andExpect(jsonPath("$.passaros.eth").value(0))
                 .andExpect(jsonPath("$.passaros.ouro").value(0))
+                .andExpect(jsonPath("$.passaros.prata").value(0))
                 .andExpect(jsonPath("$.passaros.v100").value(0))
                 .andExpect(jsonPath("$.campos[0].pool.btc").doesNotExist())
                 .andExpect(jsonPath("$.campos[0].pool.eth").doesNotExist())
-                .andExpect(jsonPath("$.flechas", hasSize(5)))
+                .andExpect(jsonPath("$.flechas", hasSize(6)))
                 // so madeira (gratis) e as de mercado; ferro, ouro e diamante sairam do jogo
-                .andExpect(jsonPath("$.flechas[*].id", contains("wood", "btc", "eth", "ouro", "v100")))
+                .andExpect(jsonPath("$.flechas[*].id", contains("wood", "btc", "eth", "ouro", "prata", "v100")))
                 .andExpect(jsonPath("$.flechas[0].id").value("wood"))
                 .andExpect(jsonPath("$.flechas[0].nome").value("Madeira"))
                 .andExpect(jsonPath("$.flechas[0].fatorPreco").value(0))
@@ -234,13 +235,17 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.flechas[2].precoFixo").isEmpty())
                 .andExpect(jsonPath("$.flechas[3].precoFixo").isEmpty())
                 .andExpect(jsonPath("$.flechas[4].precoFixo").isEmpty())
-                .andExpect(jsonPath("$.flechas[4].id").value("v100"))
-                .andExpect(jsonPath("$.flechas[4].passaroAlvo").value("v100"))
+                .andExpect(jsonPath("$.flechas[5].precoFixo").isEmpty())
+                .andExpect(jsonPath("$.flechas[4].id").value("prata"))
+                .andExpect(jsonPath("$.flechas[4].nome").value("Prata"))
+                .andExpect(jsonPath("$.flechas[4].passaroAlvo").value("prata"))
+                .andExpect(jsonPath("$.flechas[5].id").value("v100"))
+                .andExpect(jsonPath("$.flechas[5].passaroAlvo").value("v100"))
                 .andExpect(jsonPath("$.flechas[2].id").value("eth"))
                 .andExpect(jsonPath("$.flechas[2].nome").value("Ethereum"))
                 .andExpect(jsonPath("$.flechas[2].passaroAlvo").value("eth"))
                 .andExpect(jsonPath("$.flechas[3].id").value("ouro"))
-                .andExpect(jsonPath("$.flechas[3].nome").value("Ouro PAXG"))
+                .andExpect(jsonPath("$.flechas[3].nome").value("Ouro"))
                 .andExpect(jsonPath("$.flechas[3].fatorMoedas").value(2))
                 .andExpect(jsonPath("$.flechas[3].passaroAlvo").value("ouro"))
                 .andExpect(jsonPath("$.maxFlechas").value(40))
@@ -555,7 +560,7 @@ class FlechaControllerTest {
                 .andExpect(jsonPath("$.detail").value("Flechas Ethereum nao sao vendidas no Campo do Vilarejo"));
         abrir("v1", "{\"campo\":\"bosque\",\"flechas\":{\"ouro\":1}}")
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Flechas Ouro PAXG nao sao vendidas no Bosque dos Arqueiros"));
+                .andExpect(jsonPath("$.detail").value("Flechas Ouro nao sao vendidas no Bosque dos Arqueiros"));
         abrir("v1", "{\"campo\":\"vilarejo\",\"flechas\":{\"wood\":30,\"btc\":11}}")
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value("Escolha de 1 a 40 flechas"));
@@ -718,7 +723,7 @@ class FlechaControllerTest {
         }
         comprar("c1", id, "{\"flecha\":\"ouro\",\"quantidade\":1}")
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.detail").value("Flechas Ouro PAXG nao sao vendidas no Bosque dos Arqueiros"));
+                .andExpect(jsonPath("$.detail").value("Flechas Ouro nao sao vendidas no Bosque dos Arqueiros"));
         // disponivel = 100 - 1,5 = 98,50: uma ethereum de 99 nao cabe
         comprar("c1", id, "{\"flecha\":\"eth\",\"quantidade\":1,\"valor\":99}")
                 .andExpect(status().isUnprocessableEntity())

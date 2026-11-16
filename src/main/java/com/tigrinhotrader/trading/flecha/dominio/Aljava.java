@@ -42,6 +42,8 @@ public class Aljava {
     // default 0: a coluna entra numa tabela que ja tem linhas (aljavas_guardadas) sem violar o not null
     @Column(columnDefinition = "integer default 0 not null")
     private int v100;
+    @Column(columnDefinition = "integer default 0 not null")
+    private int prata;
 
     protected Aljava() {
         // JPA
@@ -83,6 +85,7 @@ public class Aljava {
         c.eth = eth;
         c.ouro = ouro;
         c.v100 = v100;
+        c.prata = prata;
         return c;
     }
 
@@ -92,6 +95,7 @@ public class Aljava {
             case BTC -> btc;
             case ETH -> eth;
             case OURO -> ouro;
+            case PRATA -> prata;
             case V100 -> v100;
         };
     }
@@ -103,6 +107,7 @@ public class Aljava {
             case BTC -> btc += quantidade;
             case ETH -> eth += quantidade;
             case OURO -> ouro += quantidade;
+            case PRATA -> prata += quantidade;
             case V100 -> v100 += quantidade;
         }
     }
@@ -162,7 +167,7 @@ public class Aljava {
         return filtrada;
     }
 
-    /** So as flechas de mercado (bitcoin, ethereum, ouro PAXG), que valem em qualquer campo. */
+    /** So as flechas de mercado (bitcoin, ethereum, ouro, prata, V100), que valem em qualquer campo. */
     public Aljava deMercado() {
         return filtrar(true);
     }
@@ -179,7 +184,7 @@ public class Aljava {
 
     /** Flechas que podem ser usadas (as antigas nao contam). */
     public int total() {
-        return wood + btc + eth + ouro + v100;
+        return wood + btc + eth + ouro + prata + v100;
     }
 
     /**

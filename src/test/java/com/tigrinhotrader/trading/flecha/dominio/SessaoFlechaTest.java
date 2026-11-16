@@ -49,7 +49,7 @@ class SessaoFlechaTest {
         assertThat(s.getUltimaAtividadeEm()).isEqualTo(agora);
         assertThat(s.getUltimoTiroEm()).isNull();
         assertThat(s.getRestantes().comoMapa()).containsExactly(Map.entry("wood", 10), Map.entry("btc", 1),
-                Map.entry("eth", 0), Map.entry("ouro", 0), Map.entry("v100", 0));
+                Map.entry("eth", 0), Map.entry("ouro", 0), Map.entry("prata", 0), Map.entry("v100", 0));
         assertThat(s.getLotesMercado()).containsExactly(new LoteFlecha(TipoFlecha.BTC, new BigDecimal("10.00"), 1));
         assertThat(s.getDisparadas().total()).isZero();
         assertThat(s.getDevolucaoQuantidade()).isZero();
@@ -151,7 +151,7 @@ class SessaoFlechaTest {
         assertThat(original.get(TipoFlecha.WOOD)).isEqualTo(3);
         copia.somar(TipoFlecha.V100, 2);
         assertThat(copia.comoMapa()).containsExactly(Map.entry("wood", 2), Map.entry("btc", 4), Map.entry("eth", 3),
-                Map.entry("ouro", 1), Map.entry("v100", 2));
+                Map.entry("ouro", 1), Map.entry("prata", 0), Map.entry("v100", 2));
         assertThat(copia.total()).isEqualTo(12);
         assertThat(copia.copia().get(TipoFlecha.V100)).isEqualTo(2);
         assertThat(copia.copia().get(TipoFlecha.BTC)).isEqualTo(4);
@@ -168,7 +168,7 @@ class SessaoFlechaTest {
         Aljava a = Aljava.de(Map.of(TipoFlecha.WOOD, 2, TipoFlecha.BTC, 3, TipoFlecha.OURO, 1));
 
         assertThat(a.comuns().comoMapa()).containsExactly(Map.entry("wood", 2), Map.entry("btc", 0),
-                Map.entry("eth", 0), Map.entry("ouro", 0), Map.entry("v100", 0));
+                Map.entry("eth", 0), Map.entry("ouro", 0), Map.entry("prata", 0), Map.entry("v100", 0));
         assertThat(a.deMercado().total()).isEqualTo(4);
         assertThat(a.deMercado().get(TipoFlecha.WOOD)).isZero();
         assertThat(Aljava.soma(a, Aljava.de(Map.of(TipoFlecha.WOOD, 1))).get(TipoFlecha.WOOD)).isEqualTo(3);
@@ -185,7 +185,7 @@ class SessaoFlechaTest {
         Aljava antigas = Aljava.antigas(1, 2, 3);
         assertThat(antigas.antigas()).isEqualTo(6);
         assertThat(antigas.total()).isZero();
-        assertThat(antigas.comoMapa()).containsOnlyKeys("wood", "btc", "eth", "ouro", "v100");
+        assertThat(antigas.comoMapa()).containsOnlyKeys("wood", "btc", "eth", "ouro", "prata", "v100");
         assertThat(antigas.valorAntigas(Campo.BOSQUE)).isEqualByComparingTo("102");
         assertThat(antigas.valorAntigas(Campo.RESERVA_REAL)).isEqualByComparingTo("680");
         assertThat(antigas.custo(Campo.BOSQUE)).isEqualByComparingTo("0");
@@ -212,7 +212,7 @@ class SessaoFlechaTest {
         SessaoFlecha s = new SessaoFlecha(UUID.randomUUID(), "u1", Campo.PICO, Aljava.de(Map.of(TipoFlecha.WOOD, 1)),
                 Aljava.antigas(2, 0, 1), agora);
         assertThat(s.getRestantes().total()).isEqualTo(1);
-        assertThat(s.getRestantes().comoMapa()).containsOnlyKeys("wood", "btc", "eth", "ouro", "v100");
+        assertThat(s.getRestantes().comoMapa()).containsOnlyKeys("wood", "btc", "eth", "ouro", "prata", "v100");
 
         Aljava sobra = s.encerrar(agora);
 

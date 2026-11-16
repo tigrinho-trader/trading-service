@@ -45,7 +45,7 @@ public class OperacaoEstudo {
     @Column(nullable = false)
     private UUID sessaoId;
 
-    /** Par negociado (BTCUSDT, ETHUSDT, PAXGUSDT). Nulo em operacoes de antes dos outros ativos: eram todas BTC. */
+    /** Ativo negociado (BTCUSDT, ETHUSDT, frxXAUUSD, frxXAGUSD, 1HZ100V; PAXGUSDT no ouro antigo). Nulo em operacoes de antes dos outros ativos: eram todas BTC. */
     @Column(length = 12)
     private String simbolo;
 
@@ -131,6 +131,8 @@ public class OperacaoEstudo {
     @Column(precision = 18, scale = 8)
     private BigDecimal precoSaidaContrato;
     private Instant saidaEm;
+    /** Quando o contrato expira na Deriv (ouro e prata: compra + 5 min); o jogo para o passaro no tick dela. */
+    private Instant expiraEm;
 
     /**
      * Moedas apostadas com a flecha de mercado: o valor da flecha, com centavos. Nulo em operacoes de antes da
@@ -208,6 +210,9 @@ public class OperacaoEstudo {
         if (t.saida() != null) {
             precoSaidaContrato = t.saida();
             saidaEm = t.saidaEm();
+        }
+        if (t.expiraEm() != null && expiraEm == null) {
+            expiraEm = t.expiraEm();
         }
     }
 
@@ -423,6 +428,10 @@ public class OperacaoEstudo {
 
     public Instant getSaidaEm() {
         return saidaEm;
+    }
+
+    public Instant getExpiraEm() {
+        return expiraEm;
     }
 
     public BigDecimal getResultadoBrutoBrl() {

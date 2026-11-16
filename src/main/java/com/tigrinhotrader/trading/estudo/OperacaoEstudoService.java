@@ -37,7 +37,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Estudo da sabedoria das massas: cada flecha de mercado solta (bitcoin, ethereum, ouro ou V100) vira uma operacao no
+ * Estudo da sabedoria das massas: cada flecha de mercado solta (bitcoin, ethereum, ouro, prata ou V100) vira uma operacao no
  * ativo dela, na direcao que o jogador previu, aberta na hora e fechada {@code fechaApos} depois (o tempo de voo da
  * flecha). No modo REAL o dinheiro da operacao e do dono do jogo.
  *
@@ -146,7 +146,7 @@ public class OperacaoEstudoService {
      * antes). Devolve a operacao ABERTA (com o tick de entrada, quando a corretora manda) ou RECUSADA/FALHOU e
      * liquidada (flecha devolvida), e a sessao atualizada.
      *
-     * @param simboloTexto par do ativo (BTCUSDT, ETHUSDT, PAXGUSDT, 1HZ100V); sem ele, BTCUSDT (clientes antigos)
+     * @param simboloTexto ativo (BTCUSDT, ETHUSDT, frxXAUUSD, frxXAGUSD, 1HZ100V); sem ele, BTCUSDT (clientes antigos)
      * @param valor valor da flecha gasta (o lote da aljava); sem ele, a de menor valor do ativo (clientes antigos)
      */
     public Registro registrar(String usuarioId, UUID sessaoId, String simboloTexto, String direcaoTexto,
@@ -264,15 +264,25 @@ public class OperacaoEstudoService {
      * ativo e sempre simulado, para dinheiro real nunca sair por um ativo que o dono nao ligou.
      */
     Corretora corretoraDe(String simbolo) {
-        if (simbolo.equalsIgnoreCase(AtivoEstudo.V100.simbolo()) && corretoraDeriv != null
+        Optional<AtivoEstudo> ativo = AtivoEstudo.porSimbolo(simbolo);
+        if (ativo.isPresent() && ativo.get().naDeriv() && corretoraDeriv != null
                 && corretoraDeriv.modo() != ModoEstudo.SIMULADO) {
-            return corretoraDeriv;
+            return corretoraDeriv.para(ativo.get());
         }
         if (simbolo.equalsIgnoreCase(propriedades.simbolo())) {
             return corretora;
         }
         return simuladas.computeIfAbsent(simbolo,
                 s -> new CorretoraSimulada(s, propriedades.taxaSimulada(), precos));
+    }
+
+    /**
+     * Quando fechar a operacao depois de aberta: o prazo do contrato nos ativos de prazo fixo (ouro e prata, 5 min);
+     * nos outros (V100 por ticks, bitcoin, ethereum), {@code estudo.fecha-apos}.
+     */
+    Duration fechaApos(String simbolo) {
+        return AtivoEstudo.porSimbolo(simbolo).flatMap(AtivoEstudo::contratoDeriv)
+                .flatMap(AtivoEstudo.Contrato::prazoFixo).orElse(propriedades.fechaApos());
     }
 
     private Optional<String> travaDoModoReal(Instant agora) {
@@ -306,7 +316,7 @@ public class OperacaoEstudoService {
             Instant aberta = relogio.instant();
             operacao.registrarAbertura(entrada, cambio, aberta);
             operacoes.save(operacao);
-            agendador.agendar(() -> fechar(id), aberta.plus(propriedades.fechaApos()));
+            agendador.agendar(() -> fechar(id), aberta.plus(fechaApos(operacao.getSimbolo())));
         } catch (RegraNegocioException e) {
             operacao.recusar(e.getMessage(), relogio.instant());
             operacoes.save(operacao);
@@ -362,6 +372,10 @@ public class OperacaoEstudoService {
         Instant agora = relogio.instant();
         for (OperacaoEstudo o : operacoes.findByStatusAndAbertaEmBefore(StatusOperacao.ABERTA,
                 agora.minus(propriedades.fechaApos()).minus(FOLGA_REVISAO))) {
+            if (o.getAbertaEm() != null
+                    && o.getAbertaEm().plus(fechaApos(o.getSimbolo())).plus(FOLGA_REVISAO).isAfter(agora)) {
+                continue;   // contrato longo (ouro, prata: 5 min) ainda correndo
+            }
             fechar(o.getId());
         }
         for (OperacaoEstudo o : operacoes.findByStatusAndCriadaEmBefore(StatusOperacao.ABRINDO,

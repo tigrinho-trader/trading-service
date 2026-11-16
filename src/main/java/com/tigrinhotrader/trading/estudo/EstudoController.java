@@ -35,7 +35,7 @@ public class EstudoController {
 
     /**
      * Previsao do jogador no instante do disparo: sobe ou desce. {@code tipo} e aceito e ignorado (a operacao e
-     * sempre BINARIA). {@code simbolo}: BTCUSDT, ETHUSDT, PAXGUSDT ou 1HZ100V (sem ele, BTCUSDT). {@code valor}: o
+     * sempre BINARIA). {@code simbolo}: BTCUSDT, ETHUSDT, frxXAUUSD (ouro), frxXAGUSD (prata) ou 1HZ100V (sem ele, BTCUSDT). {@code valor}: o
      * valor da flecha gasta, um lote da aljava (422 se nao houver flecha do ativo com esse valor); sem ele, a de
      * menor valor do ativo.
      */
@@ -52,7 +52,8 @@ public class EstudoController {
      * Operacoes antigas guardam o pagamento da regra delas. {@code sessao}: a sessao da flecha, com a aljava e os
      * ganhos atualizados (nula se nao existe). {@code precoEntradaContrato}/{@code entradaEm} e
      * {@code precoSaidaContrato}/{@code saidaEm}: os ticks reais do contrato na Deriv (o jogo desenha o passaro
-     * por eles); nulos ate chegarem e nas outras corretoras.
+     * por eles); nulos ate chegarem e nas outras corretoras. {@code expiraEm}: quando o contrato expira (ouro e
+     * prata, 5 min depois da compra: o tick de saida e o ultimo ate essa hora).
      */
     public record OperacaoResponse(UUID id, String simbolo, Direcao direcao, TipoPrevisao tipo, ModoEstudo modo,
                                    StatusOperacao status, String motivo, BigDecimal nocionalBrl,
@@ -61,7 +62,8 @@ public class EstudoController {
                                    BigDecimal resultadoLiquidoBrl, Boolean acertouDirecao,
                                    BigDecimal resultadoBinarioBrl, Instant criadaEm, Instant fechadaEm,
                                    BigDecimal moedasPagas, BigDecimal precoEntradaContrato, Instant entradaEm,
-                                   BigDecimal precoSaidaContrato, Instant saidaEm, SessaoResponse sessao) {
+                                   BigDecimal precoSaidaContrato, Instant saidaEm, Instant expiraEm,
+                                   SessaoResponse sessao) {
 
         static OperacaoResponse de(Registro r) {
             OperacaoEstudo o = r.operacao();
@@ -70,7 +72,8 @@ public class EstudoController {
                     o.getPrecoEntrada(), o.getPrecoSaida(), o.getResultadoBrutoBrl(), o.getTaxasBrl(),
                     o.getResultadoLiquidoBrl(), o.getAcertouDirecao(), o.getResultadoBinarioBrl(), o.getCriadaEm(),
                     o.getFechadaEm(), o.getMoedasPagas(), o.getPrecoEntradaContrato(), o.getEntradaEm(),
-                    o.getPrecoSaidaContrato(), o.getSaidaEm(), r.sessao() == null ? null : SessaoResponse.de(r.sessao()));
+                    o.getPrecoSaidaContrato(), o.getSaidaEm(), o.getExpiraEm(),
+                    r.sessao() == null ? null : SessaoResponse.de(r.sessao()));
         }
     }
 
@@ -100,7 +103,7 @@ public class EstudoController {
     }
 
     /**
-     * Placar do jogador nas operacoes fechadas: uma entrada por ativo do estudo (BTCUSDT, ETHUSDT, PAXGUSDT, mesmo
+     * Placar do jogador nas operacoes fechadas: uma entrada por ativo do estudo (BTCUSDT, ETHUSDT, frxXAUUSD, frxXAGUSD, 1HZ100V, mesmo
      * zerada) e o total. {@code taxaAcertoPercentual} = acertos x 100 / (acertos + erros), nula sem nenhum dos dois;
      * {@code resultadoLiquidoBrl} = soma do resultado liquido das operacoes (0 sem nenhuma).
      */

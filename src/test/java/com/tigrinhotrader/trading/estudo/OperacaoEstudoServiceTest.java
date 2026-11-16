@@ -24,6 +24,7 @@ import com.tigrinhotrader.trading.mensageria.OrdemExecutadaPublisher;
 import com.tigrinhotrader.trading.mensageria.SessaoFlechaEncerradaEvento;
 import com.tigrinhotrader.trading.preco.PrecoCache;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -137,6 +138,31 @@ class OperacaoEstudoServiceTest {
                 ModoEstudo.SIMULADO, BigDecimal.TEN, null, null, AGORA);
         assertThat(antiga.getSimbolo()).isEqualTo("BTCUSDT");
         assertThat(antiga.getTipo()).isEqualTo(TipoPrevisao.PREVISAO);
+    }
+
+    @Test
+    void ouroEPrataFechamDepoisDos5MinutosDoContrato() {
+        OperacaoEstudoService s = servico(false);
+        assertThat(s.fechaApos("frxXAUUSD")).isEqualTo(Duration.ofMinutes(5));
+        assertThat(s.fechaApos("frxXAGUSD")).isEqualTo(Duration.ofMinutes(5));
+        // V100 (5 ticks), bitcoin e ethereum: o estudo.fecha-apos de sempre
+        assertThat(s.fechaApos("1HZ100V")).isEqualTo(Duration.ofSeconds(5));
+        assertThat(s.fechaApos("BTCUSDT")).isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test
+    void revisaoNaoFechaOOuroAntesDosCincoMinutos() {
+        OperacaoEstudo ouro = OperacaoEstudo.nova("u", UUID.randomUUID(), "frxXAUUSD", Direcao.ALTA, TipoPrevisao.BINARIA,
+                ModoEstudo.REAL, BigDecimal.TEN, null, null, AGORA.minusSeconds(121));
+        ouro.registrarAbertura(new Execucao("deriv-1", BigDecimal.ZERO, new BigDecimal("3870"), BigDecimal.TEN.negate(),
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO), BigDecimal.ONE, AGORA.minusSeconds(120));
+        when(operacoes.findByStatusAndAbertaEmBefore(eq(StatusOperacao.ABERTA), any())).thenReturn(List.of(ouro));
+
+        servico(true).revisarPendentes();
+
+        // aberto ha 2 min de um contrato de 5: a revisao deixa a corretora terminar
+        assertThat(ouro.getStatus()).isEqualTo(StatusOperacao.ABERTA);
+        verify(operacoes, never()).findById(ouro.getId());
     }
 
     @Test
@@ -353,6 +379,19 @@ class OperacaoEstudoServiceTest {
         assertThat(CorretoraDerivOptions.empatou(json.readTree("{\"entry_tick\":1234.56,\"exit_tick\":1234.560}"))).isTrue();
         assertThat(CorretoraDerivOptions.empatou(json.readTree("{\"entry_spot\":\"1234.56\",\"exit_tick\":1234.57}"))).isFalse();
         assertThat(CorretoraDerivOptions.empatou(json.readTree("{\"entry_tick\":1234.56}"))).isFalse();
+    }
+
+    @Test
+    void contratoDerivTrazAExpiracaoEMercadoFechadoVemEmPortugues() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        Execucao.Ticks t = RoteadorDeriv.ticks(json.readTree(
+                "{\"entry_spot\":\"3870.12\",\"entry_spot_time\":1000,\"date_expiry\":1299}"));
+        assertThat(t.entradaEm()).isEqualTo(java.time.Instant.ofEpochSecond(1000));
+        assertThat(t.expiraEm()).isEqualTo(java.time.Instant.ofEpochSecond(1299));
+        assertThat(CorretoraDerivOptions.motivoDaRecusa("This market is presently closed.", AtivoEstudo.OURO))
+                .startsWith("o mercado de Ouro está fechado agora");
+        assertThat(CorretoraDerivOptions.motivoDaRecusa("Saldo insuficiente", AtivoEstudo.PRATA))
+                .isEqualTo("Saldo insuficiente");
     }
 
     @Test

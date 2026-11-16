@@ -21,8 +21,10 @@ public enum TipoFlecha {
     BTC("btc", "Bitcoin", 1, new BigDecimal("2")),
     /** Especial como a bitcoin, mas so acerta o passaro ethereum (campos com o ativo). */
     ETH("eth", "Ethereum", 1, new BigDecimal("2")),
-    /** Especial como a bitcoin, mas so acerta o passaro do ouro (campos com o ativo). */
-    OURO("ouro", "Ouro PAXG", 1, new BigDecimal("2")),
+    /** Especial como a bitcoin, mas so acerta o passaro do ouro (Deriv, contrato de 5 minutos). */
+    OURO("ouro", "Ouro", 1, new BigDecimal("2")),
+    /** Especial como a bitcoin, mas so acerta o passaro da prata (Deriv, contrato de 5 minutos). */
+    PRATA("prata", "Prata", 1, new BigDecimal("2")),
     V100("v100", "Volatilidade 100", 1, new BigDecimal("2"));
 
     private final String id;
@@ -42,7 +44,7 @@ public enum TipoFlecha {
         return passaroAlvo().map(alvo -> alvo == passaro).orElse(true);
     }
 
-    /** Flecha de mercado (bitcoin, ethereum, ouro, V100): valor escolhido pelo jogador e usada pelo estudo. */
+    /** Flecha de mercado (bitcoin, ethereum, ouro, prata, V100): valor escolhido pelo jogador e usada pelo estudo. */
     public boolean deMercado() {
         return passaroAlvo().isPresent();
     }
@@ -53,6 +55,7 @@ public enum TipoFlecha {
             case BTC -> Optional.of(Passaro.BTC);
             case ETH -> Optional.of(Passaro.ETH);
             case OURO -> Optional.of(Passaro.OURO);
+            case PRATA -> Optional.of(Passaro.PRATA);
             case V100 -> Optional.of(Passaro.V100);
             case WOOD -> Optional.empty();
         };

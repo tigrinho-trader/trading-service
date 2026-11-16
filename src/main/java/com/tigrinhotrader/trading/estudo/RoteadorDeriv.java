@@ -105,10 +105,11 @@ final class RoteadorDeriv {
         Instant entradaEm = instante(c, "entry_spot_time", "entry_tick_time");
         BigDecimal saida = numero(c, "exit_spot", "exit_tick");
         Instant saidaEm = instante(c, "exit_spot_time", "exit_tick_time");
+        Instant expiraEm = instante(c, "date_expiry", "date_expiry");
         if (entrada == null && saida == null) {
             return null;
         }
-        return new Execucao.Ticks(entrada, entradaEm, saida, saidaEm);
+        return new Execucao.Ticks(entrada, entradaEm, saida, saidaEm, expiraEm);
     }
 
     private static BigDecimal numero(JsonNode c, String campo, String antigo) {

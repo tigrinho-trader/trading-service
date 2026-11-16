@@ -26,9 +26,9 @@ public enum Campo {
     BOSQUE("bosque", "Bosque dos Arqueiros", new BigDecimal("1.5"), 3, 4, pesos("4", "2", "3", "1", "0.5"),
             mercado(Passaro.BTC, Passaro.ETH)),
     PICO("pico", "Pico das Águias", new BigDecimal("4"), 8, 10, pesos("3", "1", "3", "3", "0.8"),
-            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100)),
+            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.PRATA, Passaro.V100)),
     RESERVA_REAL("reserva-real", "Reserva Real", new BigDecimal("10"), 20, 25, pesos("2", "1", "3", "4", "1.2"),
-            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.V100));
+            mercado(Passaro.BTC, Passaro.ETH, Passaro.OURO, Passaro.PRATA, Passaro.V100));
 
     /** Chave da entrada livre: ligada, todos os campos cobram 0 de entrada. Quem liga e o {@link EntradaLivreConfig}. */
     private static volatile boolean entradaLivre;
