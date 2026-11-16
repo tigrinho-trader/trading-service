@@ -53,7 +53,8 @@ estudo:
   max-operacoes-dia: ${ESTUDO_MAX_OPERACOES_DIA:300}
   max-abertas: ${ESTUDO_MAX_ABERTAS:5}
   perda-maxima-dia-brl: ${ESTUDO_PERDA_MAXIMA_DIA_BRL:50}
-  intervalo-por-jogador: 1s
+  # menor intervalo entre duas flechas de mercado do mesmo jogador: barra o clique duplo, mas deixa atirar em seguida
+  intervalo-por-jogador: 250ms
   # placar da aposta binaria (+ no acerto, - no erro): so metrica do estudo, nao move dinheiro
   aposta-binaria-brl: 10
   revisao-habilitada: true
